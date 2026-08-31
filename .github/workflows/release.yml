@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n backend.sh install.sh uninstall.sh helper/omarchy-amneziawg-helper tests/*.sh tests/fake/*
+      - name: Manifest is valid JSON
+        run: python3 -c "import json; json.load(open('manifest.json'))"
+      - name: Backend regression suite
+        run: bash tests/run.sh
+
+  create-release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
