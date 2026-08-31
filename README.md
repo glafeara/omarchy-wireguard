@@ -1,8 +1,9 @@
 # Omazia — AmneziaWG tunnels in the Omarchy bar
 
-Connect, switch, import, edit, rename and QR-export AmneziaWG tunnels from
+Connect, import, edit, rename and QR-export AmneziaWG tunnels from
 the [Omarchy](https://github.com/basecamp/omarchy) bar — with live traffic, the
 connection's own numbers, and a warning when a tunnel drops behind your back.
+Each tunnel has its own toggle, so you can run several at once.
 
 Omazia is an unofficial third-party widget. It is not affiliated with,
 endorsed by, or connected to the AmneziaWG or WireGuard projects.
@@ -11,14 +12,14 @@ endorsed by, or connected to the AmneziaWG or WireGuard projects.
 
 Tunnels are `awg-quick` config files under `/etc/amnezia/amneziawg`, one
 `.conf` per interface, root-owned and mode 0600. The widget lists every
-tunnel it finds there, and importing a `.conf` file creates one. Switching
-is exclusive and transactional: the tunnel you pick comes up and every
-other AmneziaWG tunnel goes down — because interface names are the identity
-and always distinct, the new tunnel normally comes up *first*, and if
-anything fails the previously active tunnels are restored, so a broken
-config never leaves you without the VPN you had. Nothing outside
-`/etc/amnezia/amneziawg` is ever touched — your wifi, ethernet and
-tailscale are not AmneziaWG tunnels and the widget never sees them.
+tunnel it finds there, and importing a `.conf` file creates one. Each tunnel
+has its own toggle: flipping one on brings it up without touching any other
+active tunnel, so you can run several at once. Clicking a tunnel's row
+points the detail grid at it. The hero switch in the panel header is the
+master control — off takes every tunnel down, on brings back the last one
+you used. Nothing outside `/etc/amnezia/amneziawg` is ever touched — your
+wifi, ethernet and tailscale are not AmneziaWG tunnels and the widget never
+sees them.
 
 ## Privilege
 
@@ -96,17 +97,18 @@ leaves your tunnel configs in place.
 ## Using it
 
 **In the bar:** left click opens and closes the panel, right click
-disconnects the active tunnel (or opens the panel when nothing is up),
-middle click refreshes. The quick VPN toggle is the switch in the panel
-header, the `t` key, or the IPC `toggle` command.
+disconnects every active tunnel (or opens the panel when nothing is up),
+middle click refreshes. The master VPN toggle is the switch in the panel
+header, the `t` key with the cursor off the list, or the IPC `toggle`
+command — off takes everything down, on brings back the last tunnel used.
 
 **In the panel:**
 
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows | move the cursor |
-| `Enter`, `Space` | connect or disconnect the selected tunnel |
-| `t` | toggle the last used tunnel |
+| `Enter`, `Space` | point the detail grid at the selected tunnel |
+| `t` | toggle the selected tunnel (or, with the cursor on the header, the last used one) |
 | `i` | import a `.conf` file |
 | `v` | import a config from the clipboard |
 | `e` | edit the selected tunnel's config (closes the panel) |
@@ -117,19 +119,20 @@ header, the `t` key, or the IPC `toggle` command.
 | `d` | disconnect everything |
 | `Esc` | close |
 
-The row under the cursor shows three buttons: the pencil asks whether to
+Hovering a row reveals a toggle — flip it to bring that one tunnel up or
+down; at rest the check glyph on the left is what marks a tunnel connected.
+Clicking anywhere else on the row points the detail grid at that tunnel. The
+row under the cursor also shows three buttons: the pencil asks whether to
 edit the config or the name, the QR square opens the code, the trash can
 deletes. Either answer to the pencil closes the panel — the editor and the
 rename prompt are windows of their own, and the panel would sit in front of
 them.
 
 **Connected tunnels sort to the top** of the list, name breaking ties, so
-what is up is the first thing you see and the row the grid describes. The
-cursor follows the tunnel it was on across that reorder, not the slot it
-held — connecting a row moves it, and an Enter afterwards must not land on
-whatever slid into its place. While a tunnel is up the header carries its
-QR button next to the switch, so sharing the tunnel you are on does not
-mean finding its row first.
+what is up is the first thing you see. The cursor follows the tunnel it was
+on across that reorder, not the slot it held. While a tunnel is up the
+header carries a QR button next to the switch for whichever tunnel the grid
+is currently showing, so sharing it does not mean finding its row first.
 
 **Connection details.** While a tunnel is up the panel shows what it is
 doing, in the same grid the system network widget uses: ping and packet
@@ -148,10 +151,12 @@ tunnels have exactly one; a tunnel with several says so under the grid
 (`first of 3 peers`), because one endpoint line cannot describe a
 site-to-site setup and should not pretend to.
 
-Nothing in this widget can bring up two tunnels at once — switching is
-exclusive — but `awg-quick`, another tool or a boot-time unit can. Then the
-grid describes the first and says which one, since one endpoint
-and one ping cannot stand for two; the tunnel it leaves out keeps a compact
+Several tunnels can be up at once — each row's toggle brings its own tunnel
+up or down, and `awg-quick`, another tool or a boot-time unit can add more.
+The grid describes **one** tunnel, since one endpoint and one ping cannot
+stand for two: by default the first active one, or whichever row you last
+clicked. It names the tunnel it is showing when more than one is up, and the
+row it belongs to is highlighted. Every other active tunnel keeps a compact
 traffic line of its own in the list below
 (`↓ 3.0K/s ↑ 14.8K/s · ↓ 2.6M ↑ 1.1M`). The one in the grid does not — the
 same four numbers twice on one screen is noise.
@@ -172,16 +177,13 @@ identity: it is the `.conf` basename under `/etc/amnezia/amneziawg`, the
 `awg` interface, and the replace-or-not decision. There are no UUIDs.
 Imported tunnels never auto-connect; a tunnel comes up only when you say so.
 
-**Switching** is transactional. Interface names are the identity and always
-distinct, so the new tunnel normally comes up before the old ones go down
-(the kernel is fine with several wg interfaces at once); only when a
-re-import targets the name of an already-active tunnel does the order fall
-back to down-then-up, and a failed activation rolls back to what was active
-before. The panel tells you which of the three outcomes you got: switched,
-"the previous tunnels were restored", or — if the rollback itself failed —
-a plain statement that the state is unknown. A successful activation
-confirms that `awg-quick up` returned, not that the peer is reachable:
-AmneziaWG has no connected/disconnected handshake state to report.
+**Connecting** brings up exactly one tunnel and leaves every other active
+tunnel alone (the kernel is fine with several wg interfaces at once). An
+already-up tunnel is a no-op. A successful activation confirms that
+`awg-quick up` returned, not that the peer is reachable: AmneziaWG has no
+connected/disconnected handshake state to report. To move from one tunnel to
+another, turn the first one off and the second one on — there is no
+exclusive "switch" any more.
 
 Replacing a tunnel during import is transactional too. If `awg-quick`
 refuses to bring the old tunnel down and its rollback also fails, the
@@ -255,7 +257,9 @@ omarchy bar set antesmd.amneziawg pingHost ""     # no latency probe
 ```bash
 omarchy-shell antesmd.amneziawg status                  # "VPN: kz" / "VPN disconnected"
 omarchy-shell antesmd.amneziawg details                 # the panel's grid on one line
-omarchy-shell antesmd.amneziawg toggle                  # connect/disconnect the last used tunnel
+omarchy-shell antesmd.amneziawg toggle                  # master: everything down, or the last used tunnel up
+omarchy-shell antesmd.amneziawg connect kz              # bring up one tunnel, leaving the rest alone
+omarchy-shell antesmd.amneziawg disconnect kz           # take down one tunnel, leaving the rest alone
 omarchy-shell antesmd.amneziawg down                    # disconnect everything
 omarchy-shell antesmd.amneziawg refresh
 omarchy-shell antesmd.amneziawg open                    # also: close, show, hide

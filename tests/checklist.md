@@ -1,10 +1,7 @@
 # Manual checklist
 
 What the fake-awg suites cannot prove — run against real tunnels before a
-release. A dead endpoint does **not** test rollback: `awg-quick up` brings a
-tunnel up successfully even when the peer is unreachable, so only a failing
-`awg-quick` exercises the restore paths — which is why those live in
-`test-connect.sh`.
+release.
 
 ## Setup
 
@@ -20,23 +17,29 @@ tunnel up successfully even when the peer is unreachable, so only a failing
 - [ ] `sudo ./uninstall.sh` removes the helper and policy and leaves
       `/etc/amnezia/amneziawg/*.conf` in place.
 
-## Switching
+## Connecting
 
-- [ ] Switch between two tunnels — the new one comes up before the old one
-      goes down (no VPN-less window), since interface names are distinct.
-- [ ] Re-import a `.conf` onto the name of an already-active tunnel — the
-      rare down-then-up edge: old down, new up.
-- [ ] Switch to a tunnel while several AmneziaWG tunnels are active (brought
-      up with `awg-quick`) — only tunnels under `/etc/amnezia/amneziawg` are
-      touched, wifi/tailscale stay up.
-- [ ] Toggle from the bar and via `omarchy-shell antesmd.amneziawg toggle`.
+- [ ] A row's toggle is hidden until the row is hovered; a connected row
+      still shows its check glyph at rest.
+- [ ] Hover a row and flip its toggle on — that tunnel comes up and no other
+      active tunnel is touched; flip a second row on — both stay up.
+- [ ] Flip a row's toggle off — only that tunnel goes down.
+- [ ] The hero switch off takes every tunnel down; on brings back the last
+      tunnel used. `omarchy-shell antesmd.amneziawg toggle` does the same.
+- [ ] `omarchy-shell antesmd.amneziawg connect <name>` / `disconnect <name>`
+      bring one tunnel up / down; `down` still disconnects everything.
+- [ ] Bring up an AmneziaWG tunnel outside the widget with `awg-quick` — the
+      widget shows it active on the next poll and its toggle reflects it.
+      Only tunnels under `/etc/amnezia/amneziawg` are touched, wifi/tailscale
+      stay up.
 
 ## Traffic
 
-- [ ] The connected row reads "Connected — click to disconnect": its numbers
-      live in the grid above. Bring a second tunnel up with `awg-quick` —
-      that row, and only that row, shows `↓ …/s ↑ …/s · ↓ … ↑ …` within ~4s
-      of opening the panel.
+- [ ] The row the grid describes reads "Connected — shown above" and is
+      highlighted; its numbers live in the grid. Every other active row shows
+      `↓ …/s ↑ …/s · ↓ … ↑ …` within ~4s of opening the panel.
+- [ ] Clicking another active row moves the grid (and the highlight) to it
+      within a second — new tunnel's numbers, never the old one's.
 - [ ] Grid totals reset after a reconnect.
 
 ## Connection details
@@ -45,14 +48,15 @@ tunnel up successfully even when the peer is unreachable, so only a failing
       holds its place from the first frame, reading `--` until its value
       lands — nothing below it jumps as the numbers arrive.
 - [ ] Address, endpoint, allowed IPs and DNS match the config; a full
-      tunnel pings in tens of milliseconds, and the figures are the new
-      tunnel's within a second of a switch, never the old one's.
+      tunnel pings in tens of milliseconds, and the figures are the newly
+      selected tunnel's within a second of clicking its row, never the old
+      one's.
 - [ ] Ping and packet loss stop moving when the panel closes and start
       from an empty window when it reopens — no stale samples on screen.
       Close the panel mid-probe (within ~2s of a tick) and reopen: the first
       frame shows `--`, never a figure from the previous session.
-- [ ] Switch tunnels while a probe is in flight — the old tunnel's latency
-      never appears in the new tunnel's window.
+- [ ] Click another active row while a probe is in flight — the old tunnel's
+      latency never appears in the new tunnel's window.
 - [ ] `omarchy-shell antesmd.amneziawg details` with the panel closed for
       more than ten seconds shows `--` for rates, totals and ping, and real
       values for the addresses. Never `0 B` for a tunnel that has moved
@@ -83,15 +87,16 @@ tunnel up successfully even when the peer is unreachable, so only a failing
 
 - [ ] Connecting a tunnel from the middle of the list moves it to the top;
       the rest stay in name order and nothing else reshuffles on a poll.
-- [ ] With the keyboard cursor on that tunnel, connecting it keeps the
-      cursor **on it** as it moves up — Enter right after disconnects the
+- [ ] With the keyboard cursor on that tunnel, connecting it with `t` keeps
+      the cursor **on it** as it moves up — `t` right after disconnects the
       same tunnel, not the row that took its old place.
 - [ ] Deleting the tunnel under the cursor leaves the cursor in range.
 
 ## Export / QR
 
 - [ ] The header's QR button appears only while a tunnel is up, targets the
-      tunnel named in the header, and is gone again after disconnecting.
+      tunnel the grid is currently showing, and is gone again after the last
+      tunnel disconnects.
 - [ ] `q` on a tunnel (or the QR button) opens the code centred on screen
       and closes the panel; `Esc`, `q` or a click outside closes it and
       deletes `$XDG_RUNTIME_DIR/omazia-qr.*.png`. The panel stays closed.
@@ -147,9 +152,9 @@ tunnel up successfully even when the peer is unreachable, so only a failing
       it; `qr` while it is up does the same.
 - [ ] The import prompt (`i` / `v`) still lives inside the panel and gets the
       focus back on cancel.
-- [ ] Start a slow import or switch, then call every IPC action that uses the
-      control worker (`down`, `importConfig`, `rename`, `importPick`,
-      `importPaste`): each replies `error: …`. An editor and an export may
+- [ ] Start a slow import or connect, then call every IPC action that uses
+      the control worker (`connect`, `disconnect`, `down`, `importConfig`,
+      `rename`, `importPick`, `importPaste`): each replies `error: …`. An editor and an export may
       start independently during that operation; a second editor or export
       rejects its already-running worker. While an editor save is queued,
       another `edit` reports the pending-save error and cannot overwrite it.
