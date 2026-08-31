@@ -1,0 +1,5 @@
+# Fallback for OMAWG_PRIV=sudo — used instead of the pkexec/polkit path.
+# Install to /etc/sudoers.d/omarchy-amneziawg (mode 0440) and run the backend
+# with OMAWG_PRIV=sudo. Lets any wheel user invoke the AmneziaWG root helper
+# (itself a tight verb allowlist) without a password.
+%wheel ALL=(root) NOPASSWD: /usr/local/lib/omarchy-amneziawg-helper

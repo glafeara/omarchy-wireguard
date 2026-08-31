@@ -10,6 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Shell syntax
-        run: bash -n backend.sh tests/*.sh tests/fake/*
+        run: bash -n backend.sh install.sh uninstall.sh helper/omarchy-amneziawg-helper tests/*.sh tests/fake/*
+      - name: Manifest is valid JSON
+        run: python3 -c "import json; json.load(open('manifest.json'))"
       - name: Backend regression suite
         run: bash tests/run.sh

@@ -1,0 +1,140 @@
+#!/bin/bash
+# omarchy-amneziawg-helper — the ONLY code that runs as root.
+#
+# Invoked via pkexec (polkit policy) or, as a fallback, sudo. It exposes a
+# tight verb allowlist for managing AmneziaWG tunnels stored under
+# /etc/amnezia/amneziawg/<iface>.conf. No eval, no argv-borne secrets:
+# config bodies arrive on stdin and are re-validated here (defense in depth —
+# a compromised unprivileged process must not be able to plant an awg-quick
+# hook that then runs as root).
+set -euf
+export LC_ALL=C
+
+AWG_CONFDIR="${AWG_CONFDIR:-/etc/amnezia/amneziawg}"
+
+usage() {
+  cat >&2 <<'EOF'
+usage: omarchy-amneziawg-helper <verb> [args]
+  list                 list awg interfaces and stored conf names
+  dump <iface>         awg show <iface> dump
+  getconf <iface>      print stored <iface>.conf
+  up <iface>           awg-quick up <iface>
+  down <iface>         awg-quick down <iface>
+  writeconf <iface>    read a config body from stdin, validate, atomically write
+  delconf <iface>      down (if up) then remove <iface>.conf
+EOF
+  exit 2
+}
+
+die() { printf 'omarchy-amneziawg-helper: %s\n' "$1" >&2; exit "${2:-1}"; }
+
+valid_iface() {
+  # regex-bounded, and explicit belt-and-braces against traversal
+  case "$1" in
+    ''|.|..) return 1 ;;
+    */*|*'/'*) return 1 ;;
+  esac
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_=+.-]{1,15}$'
+}
+
+need_iface() {
+  [ "$#" -ge 1 ] || die "missing <iface>" 2
+  valid_iface "$1" || die "invalid interface name: $1" 2
+}
+
+validate_body() {
+  # stdin -> reject on any violation, exit 1 without writing
+  local line key kl
+  local n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    # strip leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -z "$line" ] && continue
+    case "$line" in
+      \#*) continue ;;
+      '[Interface]'|'[Peer]') continue ;;
+      \[*\]) die "line $n: unknown section header: $line" ;;
+    esac
+    case "$line" in
+      *=*) : ;;
+      *) die "line $n: not a Key = Value line: $line" ;;
+    esac
+    key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"
+    kl="$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')"
+    case "$kl" in
+      preup|postup|predown|postdown|saveconfig)
+        die "line $n: '$key' is not allowed (awg-quick would run it as root)" ;;
+      privatekey|publickey|presharedkey|address|dns|listenport|mtu|fwmark|table|allowedips|endpoint|persistentkeepalive|jc|jmin|jmax|s1|s2|s3|s4|h1|h2|h3|h4|i1|i2|i3|i4|i5)
+        continue ;;
+      *)
+        die "line $n: unknown key: $key" ;;
+    esac
+  done
+}
+
+cmd="${1:-}"
+[ -n "$cmd" ] || usage
+shift || true
+
+case "$cmd" in
+  list)
+    ifaces="$(awg show interfaces 2>/dev/null || true)"
+    printf '%s' "$ifaces" | tr ' \t' '\n\n' | grep -v '^$' || true
+    printf -- '---\n'
+    if [ -d "$AWG_CONFDIR" ]; then
+      set +f
+      for f in "$AWG_CONFDIR"/*.conf; do
+        [ -e "$f" ] || continue
+        b="${f##*/}"
+        printf '%s\n' "${b%.conf}"
+      done
+      set -f
+    fi
+    ;;
+  dump)
+    need_iface "$@"
+    exec awg show "$1" dump
+    ;;
+  getconf)
+    need_iface "$@"
+    f="$AWG_CONFDIR/$1.conf"
+    [ -f "$f" ] || die "no such conf: $1"
+    exec cat "$f"
+    ;;
+  up)
+    need_iface "$@"
+    exec awg-quick up "$1"
+    ;;
+  down)
+    need_iface "$@"
+    exec awg-quick down "$1"
+    ;;
+  writeconf)
+    need_iface "$@"
+    iface="$1"
+    body="$(cat)"
+    printf '%s\n' "$body" | validate_body
+    [ -d "$AWG_CONFDIR" ] || die "config dir missing: $AWG_CONFDIR"
+    tmp="$(mktemp "$AWG_CONFDIR/.omazia.XXXXXX")"
+    trap 'rm -f "$tmp"' EXIT
+    printf '%s\n' "$body" > "$tmp"
+    chmod 600 "$tmp"
+    chown root:root "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$AWG_CONFDIR/$iface.conf"
+    trap - EXIT
+    ;;
+  delconf)
+    need_iface "$@"
+    iface="$1"
+    if awg show interfaces 2>/dev/null | tr ' \t' '\n\n' | grep -qx -- "$iface"; then
+      awg-quick down "$iface" || true
+    fi
+    rm -f "$AWG_CONFDIR/$iface.conf"
+    ;;
+  *)
+    usage
+    ;;
+esac

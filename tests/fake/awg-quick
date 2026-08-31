@@ -1,0 +1,28 @@
+#!/bin/bash
+# Fake `awg-quick` for backend tests. State in $FAKE_DIR:
+#   active               one active interface name per line
+#   fail-up.<iface>      if present, `up <iface>` fails
+#   fail-up-any          if present, every `up` fails
+#   fail-down.<iface>    if present, `down <iface>` fails
+set -u
+echo "awg-quick $*" >> "$FAKE_DIR/log"
+
+action="${1:-}"; iface="${2:-}"
+touch "$FAKE_DIR/active"
+case "$action" in
+  up)
+    if [ -e "$FAKE_DIR/fail-up.$iface" ] || [ -e "$FAKE_DIR/fail-up-any" ]; then
+      echo "awg-quick: activation of $iface failed" >&2; exit 1
+    fi
+    grep -qxF "$iface" "$FAKE_DIR/active" || echo "$iface" >> "$FAKE_DIR/active"
+    exit 0 ;;
+  down)
+    if [ -e "$FAKE_DIR/fail-down.$iface" ]; then
+      echo "awg-quick: deactivation of $iface failed" >&2; exit 1
+    fi
+    grep -vxF "$iface" "$FAKE_DIR/active" > "$FAKE_DIR/active.tmp" || true
+    mv "$FAKE_DIR/active.tmp" "$FAKE_DIR/active"
+    exit 0 ;;
+esac
+echo "fake-awg-quick: unhandled: $*" >&2
+exit 99

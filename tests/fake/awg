@@ -1,0 +1,31 @@
+#!/bin/bash
+# Fake `awg` for backend tests. State in $FAKE_DIR:
+#   active            one active interface name per line
+#   dump.<iface>      canonical `awg show <iface> dump` output
+# `awg pubkey` is only a syntactic key check — echo a fixed fake key.
+set -u
+echo "awg $*" >> "$FAKE_DIR/log"
+
+case "${1:-}" in
+  pubkey)
+    cat >/dev/null
+    printf '%s\n' 'fake-public-key='
+    exit 0 ;;
+  show)
+    case "${2:-}" in
+      interfaces)
+        [ -e "$FAKE_DIR/fail-active" ] && { echo "awg: unable to list" >&2; exit 1; }
+        [ -f "$FAKE_DIR/active" ] && grep -v '^$' "$FAKE_DIR/active" || true
+        exit 0 ;;
+      *)
+        iface="$2"
+        if [ "${3:-}" = "dump" ]; then
+          [ -f "$FAKE_DIR/dump.$iface" ] || { echo "awg: no such device" >&2; exit 1; }
+          cat "$FAKE_DIR/dump.$iface"
+          exit 0
+        fi
+        ;;
+    esac ;;
+esac
+echo "fake-awg: unhandled: $*" >&2
+exit 99

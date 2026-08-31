@@ -1,5 +1,0 @@
-#!/bin/bash
-# Imports only use `wg pubkey` as a syntactic key check.  The fake accepts the
-# fixture keys so backend transaction tests never depend on host packages.
-cat >/dev/null
-printf '%s\n' 'fake-public-key='

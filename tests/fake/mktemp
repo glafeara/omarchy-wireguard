@@ -2,7 +2,7 @@
 set -u
 # Only intercept editor allocations in the dedicated regression. Test setup
 # and every other mktemp call continue to use the host implementation.
-if [ -n "${FAKE_DIR:-}" ] && [ -e "$FAKE_DIR/fail-second-mktemp" ] && [[ "${*: -1}" == *wg-edit.* ]]; then
+if [ -n "${FAKE_DIR:-}" ] && [ -e "$FAKE_DIR/fail-second-mktemp" ] && [[ "${*: -1}" == *omazia-edit.* ]]; then
   count_file="$FAKE_DIR/mktemp-editor-count"
   count=0
   [ -f "$count_file" ] && count="$(cat "$count_file")"

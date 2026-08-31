@@ -1,0 +1,50 @@
+#!/bin/bash
+# Fake omarchy-amneziawg-helper for backend tests. Runs unprivileged
+# (backend uses OMAWG_PRIV=direct OMAWG_HELPER=.../fake/helper). It shells to
+# the fake `awg` / `awg-quick` on PATH and does config CRUD in $FAKE_DIR:
+#   conf.<iface>          stored tunnel config body
+#   fail-delete.<iface>   if present, `delconf <iface>` fails
+set -uf
+echo "helper $*" >> "$FAKE_DIR/log"
+
+verb="${1:-}"; iface="${2:-}"
+
+valid() { [[ "$1" =~ ^[A-Za-z0-9_=+.-]{1,15}$ ]] && [ "$1" != "." ] && [ "$1" != ".." ]; }
+case "$verb" in
+  list|"") ;;
+  *) valid "$iface" || { echo "helper: bad interface name: $iface" >&2; exit 2; } ;;
+esac
+
+case "$verb" in
+  list)
+    awg show interfaces || exit 1
+    echo ---
+    set +f
+    for f in "$FAKE_DIR"/conf.*; do
+      [ -e "$f" ] || continue
+      printf '%s\n' "${f##*/conf.}"
+    done
+    set -f
+    exit 0 ;;
+  dump)
+    exec awg show "$iface" dump ;;
+  getconf)
+    [ -e "$FAKE_DIR/fail-getconf-any" ] && { echo "helper: getconf failed" >&2; exit 1; }
+    [ -f "$FAKE_DIR/conf.$iface" ] || { echo "helper: no such tunnel: $iface" >&2; exit 1; }
+    cat "$FAKE_DIR/conf.$iface"
+    exit 0 ;;
+  up)
+    exec awg-quick up "$iface" ;;
+  down)
+    exec awg-quick down "$iface" ;;
+  writeconf)
+    cat > "$FAKE_DIR/conf.$iface"
+    exit 0 ;;
+  delconf)
+    [ -e "$FAKE_DIR/fail-delete.$iface" ] && { echo "helper: delete of $iface failed" >&2; exit 1; }
+    if awg show interfaces | grep -qxF "$iface"; then awg-quick down "$iface" >/dev/null 2>&1 || true; fi
+    rm -f "$FAKE_DIR/conf.$iface"
+    exit 0 ;;
+esac
+echo "fake-helper: unhandled verb: $verb" >&2
+exit 2

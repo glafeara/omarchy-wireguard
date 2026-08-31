@@ -8,20 +8,20 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "glafeara.wireguard"
-  ipcTarget: "glafeara.wireguard"
+  moduleName: "antesmd.amneziawg"
+  ipcTarget: "antesmd.amneziawg"
   manageIpc: false
 
   property string focusSection: "header"
   property int configIndex: 0
   property bool cursorActive: false
-  // Profile ({uuid, name}) awaiting delete confirmation; non-null opens the
+  // Profile ({ifname, name}) awaiting delete confirmation; non-null opens the
   // dialog. A profile object, not a name — names are not unique.
   property var pendingDelete: null
   // Incoming config awaiting a name; "file" | "text" | "" (no prompt open).
   property string importKind: ""
   property string importPayload: ""
-  // Profile ({uuid, name}) awaiting a new display name; non-null while the
+  // Profile ({ifname, name}) awaiting a new display name; non-null while the
   // rename dialog is open.
   property var pendingRename: null
   // Profile whose pencil was clicked — the chooser asks whether to edit
@@ -67,7 +67,7 @@ Panel {
       ? importNameCount + " profiles use the interface " + importNameClean + " — pick another name"
       : (importReplaces
         ? "Replaces the existing connection " + (importReplaceTarget ? importReplaceTarget.name : importNameClean)
-        : "Imports as NetworkManager connection " + importNameClean))
+        : "Imports as an AmneziaWG tunnel named " + importNameClean))
 
   // Rename touches connection.id only — a free-form label, so spaces are
   // fine. Duplicates are refused: every name-based entry point in the
@@ -88,17 +88,17 @@ Panel {
   // this, connecting the third row would move that row to the top and leave
   // the cursor on whatever slid into third place, one Enter away from
   // switching a tunnel nobody pointed at.
-  property string cursorUuid: ""
+  property string cursorIfname: ""
 
   function rememberCursor() {
     var profile = selectedProfile()
-    cursorUuid = profile ? String(profile.uuid) : ""
+    cursorIfname = profile ? String(profile.ifname) : ""
   }
 
   function restoreCursor() {
-    if (focusSection === "configs" && cursorUuid !== "") {
+    if (focusSection === "configs" && cursorIfname !== "") {
       for (var i = 0; i < wireguard.profiles.length; i++) {
-        if (wireguard.profiles[i].uuid === cursorUuid) {
+        if (wireguard.profiles[i].ifname === cursorIfname) {
           configIndex = i
           break
         }
@@ -388,14 +388,14 @@ Panel {
       if (wireguard.countByIfname(name) > 1) return "error: ambiguous: several profiles use the interface " + name
       return wireguard.importFile(path, name) ? name : "error: " + wireguard.actionRejection
     }
-    // Takes a connection name or a profile UUID; a name shared by several
+    // Takes a display name or an interface name; a name shared by several
     // profiles is refused rather than resolved to an arbitrary one.
     function edit(target: string): string {
-      var profile = wireguard.findByUuid(target)
+      var profile = wireguard.findByIfname(target)
       if (!profile) {
         var n = wireguard.countByName(target)
         if (n === 0) return "error: no such config: " + target
-        if (n > 1) return "error: ambiguous name: " + target + " — use a UUID: " + wireguard.uuidsForName(target).join(" ")
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
         profile = wireguard.findByName(target)
       }
       return wireguard.editConfig(profile, "") ? "ok" : "error: " + wireguard.actionRejection
@@ -404,11 +404,11 @@ Panel {
     // anything single-line goes — except a name another profile already
     // holds, which would poison every name-based entry point.
     function rename(target: string, newName: string): string {
-      var profile = wireguard.findByUuid(target)
+      var profile = wireguard.findByIfname(target)
       if (!profile) {
         var n = wireguard.countByName(target)
         if (n === 0) return "error: no such config: " + target
-        if (n > 1) return "error: ambiguous name: " + target + " — use a UUID: " + wireguard.uuidsForName(target).join(" ")
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
         profile = wireguard.findByName(target)
       }
       var value = String(newName || "").trim()
@@ -425,11 +425,11 @@ Panel {
     // Headless export — no warning dialog: an explicit path in argv is
     // already deliberate in a way a panel click is not. The file lands 0600.
     function exportConfig(target: string, path: string): string {
-      var profile = wireguard.findByUuid(target)
+      var profile = wireguard.findByIfname(target)
       if (!profile) {
         var n = wireguard.countByName(target)
         if (n === 0) return "error: no such config: " + target
-        if (n > 1) return "error: ambiguous name: " + target + " — use a UUID: " + wireguard.uuidsForName(target).join(" ")
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
         profile = wireguard.findByName(target)
       }
       if (String(path || "") === "") return "error: no destination path"
@@ -438,11 +438,11 @@ Panel {
     // The QR has its own window, so this never touches the panel — a
     // headless caller gets the code centred on screen and nothing else.
     function qr(target: string): string {
-      var profile = wireguard.findByUuid(target)
+      var profile = wireguard.findByIfname(target)
       if (!profile) {
         var n = wireguard.countByName(target)
         if (n === 0) return "error: no such config: " + target
-        if (n > 1) return "error: ambiguous name: " + target + " — use a UUID: " + wireguard.uuidsForName(target).join(" ")
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
         profile = wireguard.findByName(target)
       }
       // "ok" has to mean a code is coming: with no panel in the way, the
@@ -580,13 +580,13 @@ Panel {
             PanelHero {
               id: hero
               width: parent.width
-              title: "Omawire"
+              title: "Omazia"
               meta: wireguard.active ? "Connected: " + wireguard.activeNames.join(", ") : "Disconnected"
               foreground: root.foreground
               fontFamily: root.fontFamily
               iconOpacity: wireguard.active ? 1.0 : 0.5
               // The bar's vpn glyph, scaled up — the widget carries no
-              // WireGuard branding of its own.
+              // AmneziaWG branding of its own.
               iconComponent: Component {
                 Text {
                   text: "󰖂"
@@ -734,7 +734,7 @@ Panel {
                 value: wireguard.trafficRate(wireguard.primaryDevice, "txRate")
               }
 
-              // Session totals, not lifetime ones: NetworkManager creates the
+              // Session totals, not lifetime ones: awg-quick creates the
               // wg interface at activation, so its counters start at zero.
               DetailPair {
                 label: "Downloaded"
@@ -829,7 +829,7 @@ Panel {
             Text {
               visible: wireguard.profiles.length === 0
               width: parent.width
-              text: "No WireGuard connections in NetworkManager\nImport a .conf with + or paste one with v"
+              text: "No AmneziaWG tunnels in /etc/amnezia/amneziawg\nImport a .conf with + or paste one with v"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -1033,7 +1033,7 @@ Panel {
     }
   }
 
-  // Screen-centred, not panel-bound: a WireGuard config makes a far denser
+  // Screen-centred, not panel-bound: an AmneziaWG config makes a far denser
   // code than the popup can show at a scannable size. Closing it deletes
   // the PNG in XDG_RUNTIME_DIR.
   QrWindow {
@@ -1149,7 +1149,7 @@ Panel {
 
   component ConfigRow: CursorSurface {
     id: configRow
-    // {uuid, name, active} — the row keeps the whole profile so its actions
+    // {ifname, name, active} — the row keeps the whole profile so its actions
     // hit exactly this profile even when names collide.
     property var profile: null
     property int rowIndex: 0
@@ -1208,7 +1208,7 @@ Panel {
           // line of its own.
           text: {
             if (!configRow.connected) return "Click to connect"
-            if (configRow.profile && configRow.profile.uuid === wireguard.primaryUuid) return "Connected — click to disconnect"
+            if (configRow.profile && configRow.profile.ifname === wireguard.primaryIfname) return "Connected — click to disconnect"
             var line = wireguard.trafficLine(configRow.profile ? configRow.profile.ifname : "")
             return line !== "" ? line : "Connected — click to disconnect"
           }

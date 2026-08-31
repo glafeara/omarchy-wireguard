@@ -5,7 +5,7 @@ import qs.Commons
 import qs.Ui
 
 // The QR code as a screen-centred window of its own, not an overlay inside
-// the bar popup: a WireGuard config is ~300-400 bytes, so its code runs to
+// the bar popup: an AmneziaWG config is ~300-500 bytes, so its code runs to
 // 80-100 modules a side and needs far more room than a panel-width card to
 // stay scannable. The panel closes as the window opens, so this surface is
 // also the only place a request can report progress or failure.
@@ -51,7 +51,7 @@ PanelWindow {
   anchors { top: true; bottom: true; left: true; right: true }
   color: "transparent"
   exclusionMode: ExclusionMode.Ignore
-  WlrLayershell.namespace: "glafeara-wireguard-qr"
+  WlrLayershell.namespace: "omazia-qr"
   WlrLayershell.layer: WlrLayer.Overlay
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
@@ -179,7 +179,7 @@ PanelWindow {
         Text {
           width: parent.width
           visible: root.showingCode
-          text: "Scan with the WireGuard app. The code holds the private key — this moves the profile; two devices on one key kick each other offline."
+          text: "Scan with the AmneziaWG app. The code holds the private key — this moves the profile; two devices on one key kick each other offline."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
