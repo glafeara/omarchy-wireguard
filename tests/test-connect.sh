@@ -1,8 +1,7 @@
 #!/bin/bash
-# Tests for backend.sh connect: exit codes 0/20/21, make-before-break,
-# rollback. Interface names are the identity now, so a switch between two
-# distinct tunnels is always make-before-break; the break-before-make branch
-# only fires on a re-import name collision.
+# Tests for backend.sh up: non-exclusive activation. Bringing one tunnel up
+# must never touch the other active tunnels — multi-tunnel is just "up this
+# one", and the panel drives each tunnel from its own row toggle.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 backend="$here/../backend.sh"
@@ -19,7 +18,7 @@ run_case() { # name expected-exit setup-fn [check-expr]
   printf '[Interface]\nPrivateKey = k\n' > "$FAKE_DIR/conf.target"
   printf '[Interface]\nPrivateKey = k\n' > "$FAKE_DIR/conf.old"
   "$setup"
-  bash "$backend" connect target >/dev/null 2>"$FAKE_DIR/stderr"
+  bash "$backend" up target >/dev/null 2>"$FAKE_DIR/stderr"
   local got=$?
   local ok=1
   [ "$got" = "$want" ] || { echo "  exit: want $want got $got"; ok=0; }
@@ -30,34 +29,23 @@ run_case() { # name expected-exit setup-fn [check-expr]
 }
 
 active_is() { [ "$(sort "$FAKE_DIR/active" | grep -v '^$')" = "$(printf '%s\n' "$@" | sort)" ] || { echo "  active: $(tr '\n' ' ' < "$FAKE_DIR/active") want: $*"; return 1; }; }
-up_before_down() {
-  local up_line down_line
-  up_line=$(grep -n "awg-quick up target" "$FAKE_DIR/log" | cut -d: -f1 | head -1)
-  down_line=$(grep -n "awg-quick down old" "$FAKE_DIR/log" | cut -d: -f1 | head -1)
-  [ -n "$up_line" ] && [ -n "$down_line" ] && [ "$up_line" -lt "$down_line" ] || { echo "  order: expected up before down"; return 1; }
-}
+no_down() { ! grep -q "awg-quick down" "$FAKE_DIR/log" || { echo "  a down ran but no tunnel should have been deactivated"; return 1; }; }
 
 s_fresh() { :; }
 run_case "no active, up ok" 0 s_fresh 'active_is target'
 
-s_switch() { echo old > "$FAKE_DIR/active"; }
-run_case "switch: make-before-break" 0 s_switch 'active_is target && up_before_down'
+s_other() { echo old > "$FAKE_DIR/active"; }
+run_case "another tunnel up: target joins it, old untouched" 0 s_other 'active_is old target && no_down'
 
 s_noop() { echo target > "$FAKE_DIR/active"; }
-run_case "already exactly the target: no-op" 0 s_noop 'active_is target'
+run_case "target already up: no-op, exit 0" 0 s_noop 'active_is target && no_down'
 
 s_among() { printf 'target\nold\n' > "$FAKE_DIR/active"; }
-run_case "target active among others: down others only" 0 s_among 'active_is target'
+run_case "target already up among others: no-op" 0 s_among 'active_is target old && no_down'
 
 s_upfail() { echo old > "$FAKE_DIR/active"; : > "$FAKE_DIR/fail-up.target"; }
-run_case "up fails: old untouched, exit 20" 20 s_upfail 'active_is old'
-
-s_downfail() { echo old > "$FAKE_DIR/active"; : > "$FAKE_DIR/fail-down.old"; }
-c_downfail() { active_is old && grep -q "were restored" "$FAKE_DIR/stderr"; }
-run_case "old refuses to go down: target rolled back down, exit 20" 20 s_downfail c_downfail
-
-s_rbfail() { echo old > "$FAKE_DIR/active"; : > "$FAKE_DIR/fail-down.old"; : > "$FAKE_DIR/fail-down.target"; }
-run_case "rollback also fails: exit 21" 21 s_rbfail 'grep -q "check your connections" "$FAKE_DIR/stderr"'
+c_upfail() { active_is old && grep -q "Could not activate" "$FAKE_DIR/stderr"; }
+run_case "up fails: old untouched, exit 1" 1 s_upfail c_upfail
 
 echo "----"
 echo "$pass passed, $fail failed"

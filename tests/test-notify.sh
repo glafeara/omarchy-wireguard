@@ -55,22 +55,17 @@ check "drop after down-all stays quiet" u1 1 2
 
 rm -f "$intent" "$notified"
 echo old > "$FAKE_DIR/active"
-bash "$backend" connect target >/dev/null 2>&1
-expect "connect marks the departing tunnel" 'grep -q "^old " "$intent"'
-expect "connect leaves the target unmarked" '! grep -q "^target " "$intent"'
-check "target drop after a switch notifies" target 0 3
-check "switched-away tunnel stays quiet" old 1 3
-
-bash "$backend" mark-active old >/dev/null 2>&1
-rm -f "$notified"
-check "re-armed after mark-active" old 0 4
+bash "$backend" up target >/dev/null 2>&1
+expect "up marks nothing down" '[ ! -s "$intent" ]'
+expect "up leaves the other tunnel active" 'grep -q "^old$" "$FAKE_DIR/active"'
+check "target drop after coming up notifies" target 0 3
 
 rm -f "$intent" "$notified"
 echo u1 > "$FAKE_DIR/active"
 bash "$backend" down u1 >/dev/null 2>&1
 bash "$backend" mark-active u1 "$(( $(date +%s) - 100 ))" >/dev/null 2>&1
 expect "stale mark-active keeps a newer marker" 'grep -q "^u1 " "$intent"'
-check "drop after the newer down stays quiet" u1 1 4
+check "drop after the newer down stays quiet" u1 1 3
 
 rm -f "$intent" "$notified"
 echo u1 > "$FAKE_DIR/active"
@@ -78,7 +73,7 @@ bash "$backend" down u1 >/dev/null 2>&1
 ts="$(awk '$1=="u1"{print $2}' "$intent")"
 bash "$backend" mark-active u1 "$ts" >/dev/null 2>&1
 expect "same-second mark-active keeps the marker" 'grep -q "^u1 " "$intent"'
-check "same-second drop stays quiet" u1 1 4
+check "same-second drop stays quiet" u1 1 3
 
 echo "----"
 echo "$pass passed, $fail failed"
