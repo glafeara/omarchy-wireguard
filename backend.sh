@@ -27,8 +27,7 @@
 # Commands:
 #   status                      list tunnels + active interface names
 #   details <iface>             key=value facts for the detail grid
-#   connect <iface>             transactional exclusive switch (exit 0 /
-#                               20 restored / 21 unknown state)
+#   up <iface>                  activate one tunnel, leaving the rest alone
 #   down <iface>                deactivate one tunnel
 #   down-all                    deactivate every active tunnel
 #   delete <iface>              delete a tunnel (deactivates it first)
@@ -319,77 +318,21 @@ cmd_details() {
   printf 'peers=%s\n' "$peers"
 }
 
-# Transactional exclusive switch. Interface names are the identity, so they
-# are always known and distinct: make-before-break (the kernel is fine with
-# several awg interfaces at once) unless the target name collides with an
-# active one (a re-import edge), where the old one must clear the way first.
-cmd_connect() {
-  local target="$1" snapshot u out
+# Non-exclusive activation: bring one tunnel up and leave every other active
+# tunnel exactly as it was. The kernel is fine with several awg interfaces at
+# once, so multi-tunnel is just "up this one" — the panel drives each tunnel
+# from its own row toggle, and the hero switch is the only thing that still
+# touches all of them (via down-all). Idempotent: an already-up target exits 0.
+cmd_up() {
+  local target="$1" out
   valid_iface "$target" || die "Invalid interface name: $target"
-  snapshot="$(active_ifaces)" || die "Could not list active tunnels"
-
-  local target_was_active=0 others=""
-  for u in $snapshot; do
-    if [ "$u" = "$target" ]; then target_was_active=1
-    else others="$others$u "; fi
-  done
-  [ "$target_was_active" = 1 ] && [ -z "$others" ] && exit 0
-
-  local overlap=1 u2
-  if [ "$target_was_active" = 0 ]; then
-    for u2 in $others; do [ "$u2" = "$target" ] && overlap=0; done
-  fi
-
-  restore() {
-    local ok=0 u now
-    now="$(active_ifaces)" || return 1
-    if [ "$target_was_active" = 0 ] && printf '%s\n' "$now" | grep -qxF "$target"; then
-      mark_down "$target"
-      PRIV down "$target" >/dev/null 2>&1 || { clear_intent "$target"; ok=1; }
-      now="$(active_ifaces)" || return 1
-    fi
-    for u in $snapshot; do
-      printf '%s\n' "$now" | grep -qxF "$u" && continue
-      if PRIV up "$u" >/dev/null 2>&1; then clear_intent "$u"; else ok=1; fi
-    done
-    return "$ok"
-  }
-
-  fail_switch() {
-    printf '%s\n' "$1" >&2
-    if restore; then
-      echo "The previous tunnels were restored" >&2
-      exit 20
-    fi
-    echo "Restoring the previous tunnels failed too — check your connections" >&2
-    exit 21
-  }
-
-  if [ "$target_was_active" = 0 ] && [ "$overlap" = 0 ]; then
-    for u in $others; do
-      mark_down "$u"
-      out="$(PRIV down "$u" 2>&1)" || {
-        clear_intent "$u"
-        fail_switch "Could not deactivate the previous tunnel: $out"
-      }
-    done
-    out="$(PRIV up "$target" 2>&1)" ||
-      fail_switch "Could not activate the tunnel: $out"
+  if active_ifaces | grep -qxF "$target"; then exit 0; fi
+  out="$(PRIV up "$target" 2>&1)" || {
     clear_intent "$target"
-  else
-    if [ "$target_was_active" = 0 ]; then
-      out="$(PRIV up "$target" 2>&1)" ||
-        fail_switch "Could not activate the tunnel: $out"
-      clear_intent "$target"
-    fi
-    for u in $others; do
-      mark_down "$u"
-      out="$(PRIV down "$u" 2>&1)" || {
-        clear_intent "$u"
-        fail_switch "Could not deactivate the previous tunnel: $out"
-      }
-    done
-  fi
+    printf 'Could not activate the tunnel: %s\n' "$out" >&2
+    exit 1
+  }
+  clear_intent "$target"
 }
 
 cmd_down() {
@@ -788,7 +731,7 @@ cmd_edit() {
 case "${1:-}" in
   status) cmd_status ;;
   details) cmd_details "$2" ;;
-  connect) lock; cmd_connect "$2" ;;
+  up) lock; cmd_up "$2" ;;
   down) lock; cmd_down "$2" ;;
   down-all) lock; cmd_down_all ;;
   delete) lock; cmd_delete "$2" ;;
@@ -801,5 +744,5 @@ case "${1:-}" in
   qr-png) cmd_qr_png "$2" ;;
   cleanup-runtime|cleanup-qr) cmd_cleanup_runtime ;;
   edit) cmd_edit "$2" "$3" ;;
-  *) die "Usage: backend.sh status|details|connect|down|down-all|delete|rename|import|export|export-file|qr-png|cleanup-runtime|edit ..." ;;
+  *) die "Usage: backend.sh status|details|up|down|down-all|delete|rename|import|export|export-file|qr-png|cleanup-runtime|edit ..." ;;
 esac

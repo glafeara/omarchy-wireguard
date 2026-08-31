@@ -90,12 +90,32 @@ Item {
   readonly property string primaryName: primaryProfile ? primaryProfile.name : ""
   readonly property string primaryDevice: primaryProfile ? primaryProfile.ifname : ""
 
+  // The tunnel the detail grid, the ping probe and the grid's traffic rows
+  // describe. Several tunnels can be up at once now, so the grid follows an
+  // explicit choice — a click on a row — rather than always the first active
+  // one. Empty means "no choice made": fall back to the primary, which keeps
+  // the old single-tunnel behaviour (grid shows whatever is connected).
+  property string inspectedIfname: ""
+  // The explicit choice is honoured while that tunnel is up; once it drops
+  // (its own toggle, an external down) the grid falls back to the first
+  // active tunnel rather than emptying out.
+  readonly property var inspectedProfile: {
+    var p = findByIfname(inspectedIfname)
+    if (p && p.active) return p
+    return primaryProfile
+  }
+  readonly property string inspectedIfnameEffective: inspectedProfile ? inspectedProfile.ifname : ""
+  readonly property string inspectedName: inspectedProfile ? inspectedProfile.name : ""
+  readonly property string inspectedDevice: inspectedIfnameEffective
+  // The grid only has numbers to show for a tunnel that is actually up.
+  readonly property bool inspectedActive: inspectedProfile ? inspectedProfile.active === true : false
+
   // Connection facts from `backend.sh details` — ip, ip6, endpoint, allowed,
   // dns, mtu, peers. Kept with the ifname they describe so a switch shows
   // the new tunnel's numbers or nothing at all, never the old tunnel's.
   property var details: ({})
   property string detailsIfname: ""
-  readonly property bool hasDetails: detailsIfname !== "" && detailsIfname === primaryIfname
+  readonly property bool hasDetails: detailsIfname !== "" && detailsIfname === inspectedIfnameEffective
 
   function detail(key) {
     if (!hasDetails) return ""
@@ -143,7 +163,7 @@ Item {
   // the profile is edited, so it is fetched on a switch and on opening,
   // never on a timer. Both halves are dropped with the tunnel they describe:
   // showing the old numbers under a new name would be worse than "--".
-  onPrimaryIfnameChanged: {
+  onInspectedIfnameEffectiveChanged: {
     details = ({})
     detailsIfname = ""
     pingSamples = []
@@ -211,9 +231,9 @@ Item {
   }
 
   function fetchDetails() {
-    if (detailsProcess.running || primaryIfname === "") return
-    _detailsFor = primaryIfname
-    detailsProcess.command = ["bash", backendPath, "details", primaryIfname, primaryDevice]
+    if (detailsProcess.running || inspectedIfnameEffective === "") return
+    _detailsFor = inspectedIfnameEffective
+    detailsProcess.command = ["bash", backendPath, "details", inspectedIfnameEffective, inspectedDevice]
     detailsProcess.running = true
   }
 
@@ -230,16 +250,16 @@ Item {
   }
 
   function samplePing() {
-    if (pingProcess.running || pingHost === "" || primaryDevice === "") return
+    if (pingProcess.running || pingHost === "" || inspectedDevice === "" || !inspectedActive) return
     // Tagged with the tunnel it was sent for: a probe takes up to two
     // seconds, and a switch or a closing panel inside that window clears the
     // samples — the reply must not land in the window that replaced them.
-    _pingFor = primaryIfname
+    _pingFor = inspectedIfnameEffective
     // The tunnel address is the fallback binding for kernels that refuse
     // SO_BINDTODEVICE to an unprivileged ping; without either, the probe
     // would measure the physical link and call it the tunnel's latency.
     pingProcess.command = ["bash", "-c", pingScript, "amneziawg",
-      primaryDevice, detail("ip").split("/")[0], pingHost]
+      inspectedDevice, detail("ip").split("/")[0], pingHost]
     pingProcess.running = true
   }
 
@@ -531,7 +551,10 @@ Item {
     actionRejection = ""
     actionStatus = "Connecting " + profile.name + "…"
     _pendingConnect = String(profile.ifname)
-    runControl(["connect", profile.ifname])
+    // A fresh connect is the tunnel the user now wants to look at — point the
+    // detail grid at it so it fills in as the tunnel comes up.
+    inspectedIfname = String(profile.ifname)
+    runControl(["up", profile.ifname])
     return true
   }
 
@@ -912,7 +935,7 @@ Item {
 
   property string _controlError: ""
   // Which backend command controlProcess is running: special exit codes
-  // (5 for import, 20/21 for connect) mean nothing outside their command.
+  // (5/6 for import) mean nothing outside their command.
   property string _controlOperation: ""
   property string _controlStdin: ""
   // True while lastError describes a failed status poll, so a successful
@@ -1273,10 +1296,10 @@ Item {
       // stale answer schedules the one the panel is actually waiting for.
       // Only staleness retries: a query that simply failed is left alone,
       // because retrying a persistent failure would spin.
-      var stale = root._detailsFor !== root.primaryIfname
+      var stale = root._detailsFor !== root.inspectedIfnameEffective
       if (exitCode === 0 && !stale) root.applyDetails(detailsStdout.text)
       root._detailsFor = ""
-      if (stale && root.primaryIfname !== "") Qt.callLater(root.fetchDetails)
+      if (stale && root.inspectedIfnameEffective !== "") Qt.callLater(root.fetchDetails)
     }
   }
 
@@ -1291,7 +1314,7 @@ Item {
     onExited: function(exitCode) {
       // The tunnel moved, or the panel closed and emptied the window, while
       // this probe was in flight: its answer belongs to neither.
-      var stale = root._pingFor !== root.primaryIfname || !root.trafficMonitoring
+      var stale = root._pingFor !== root.inspectedIfnameEffective || !root.trafficMonitoring
       root._pingFor = ""
       if (stale) return
       if (exitCode === 1) {
@@ -1345,9 +1368,8 @@ Item {
         if (completedEditorSave) root.editFinished()
       } else {
         root.actionStatus = ""
-        // 20/21 (connect only): the switch failed; the backend's stderr says
-        // whether the previous tunnels were restored (20) or the rollback
-        // itself failed (21). Either way the poll below shows what is up.
+        // A failed `up`/`down` leaves the other tunnels untouched — nothing to
+        // roll back — so the poll below just shows what is actually up.
         var reason = root.elide(root._controlError || "AmneziaWG operation failed")
         if (importStateUnknown) {
           root.lastError = reason
