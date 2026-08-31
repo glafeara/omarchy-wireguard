@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "antesmd.amneziawg",
   "name": "Omazia",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "author": "antesmd",
   "license": "MIT",
-  "description": "Tunnel status, transactional switching, import, rename, QR export, live traffic and drop notifications in the Omarchy bar. Manages AmneziaWG tunnels under /etc/amnezia/amneziawg via awg-quick and a small root helper invoked with pkexec — no NetworkManager, no sudo shell. Unofficial third-party widget; not affiliated with the AmneziaWG project.",
+  "description": "Tunnel status, per-tunnel toggles for running several at once, import, rename, QR export, live traffic and drop notifications in the Omarchy bar. Manages AmneziaWG tunnels under /etc/amnezia/amneziawg via awg-quick and a small root helper invoked with pkexec — no NetworkManager, no sudo shell. Unofficial third-party widget; not affiliated with the AmneziaWG project.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Omazia",
-    "description": "Toggle, switch and rename AmneziaWG tunnels, import .conf files, show QR codes, watch traffic, get a toast when a tunnel drops. Drives awg-quick through a pkexec helper — no NetworkManager, one-time sudo ./install.sh for the polkit policy.",
+    "description": "Toggle AmneziaWG tunnels one by one (run as many as you like at once), rename them, import .conf files, show QR codes, watch traffic, get a toast when a tunnel drops. Drives awg-quick through a pkexec helper — no NetworkManager, one-time sudo ./install.sh for the polkit policy.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",
