@@ -165,7 +165,16 @@ Panel {
     return wireguard.profiles[Math.max(0, Math.min(configIndex, wireguard.profiles.length - 1))]
   }
 
+  // A click or Enter on a row selects it for the detail grid — connecting and
+  // disconnecting is the row's toggle (or the `t` key), never the row itself.
   function activateConfig(profile) {
+    if (!profile) return
+    wireguard.inspectedIfname = String(profile.ifname)
+  }
+
+  // The per-row toggle: bring this one tunnel up or down without touching the
+  // others. Also what `t` does when the cursor is on a config row.
+  function toggleConfig(profile) {
     if (wireguard.busy || !profile) return
     if (profile.active) wireguard.disconnectOne(profile)
     else wireguard.connectTo(profile)
@@ -375,6 +384,31 @@ Panel {
     function down(): string {
       return wireguard.disconnectAll() ? "ok" : "error: " + wireguard.actionRejection
     }
+    // Bring one tunnel up, leaving the rest alone. Takes a display name or an
+    // interface name; a name shared by several profiles is refused rather than
+    // resolved to an arbitrary one.
+    function connect(target: string): string {
+      var profile = wireguard.findByIfname(target)
+      if (!profile) {
+        var n = wireguard.countByName(target)
+        if (n === 0) return "error: no such config: " + target
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
+        profile = wireguard.findByName(target)
+      }
+      return wireguard.connectTo(profile) ? "ok" : "error: " + wireguard.actionRejection
+    }
+    // Take one tunnel down without touching the others (`down` alone still
+    // disconnects everything). Same target resolution as `connect`.
+    function disconnect(target: string): string {
+      var profile = wireguard.findByIfname(target)
+      if (!profile) {
+        var n = wireguard.countByName(target)
+        if (n === 0) return "error: no such config: " + target
+        if (n > 1) return "error: ambiguous name: " + target + " — use an interface name: " + wireguard.ifnamesForName(target).join(" ")
+        profile = wireguard.findByName(target)
+      }
+      return wireguard.disconnectOne(profile) ? "ok" : "error: " + wireguard.actionRejection
+    }
     function status(): string { return wireguard.statusText }
     // The connection grid without the panel. Rates and ping only move while
     // something is watching them, so a headless caller sees the totals and
@@ -456,12 +490,18 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    // The generic vpn glyph — the same one the panel header uses at
-    // display size.
-    text: "󰖂"
+    // The AmneziaWG mark, the same one the panel header uses at display size.
     // No tooltip on hover: the icon itself is the status display — full
     // brightness while a tunnel is up, dimmed while disconnected.
-    foreground: root.barIconColor
+    iconComponent: Component {
+      Item {
+        AmneziaIcon {
+          anchors.centerIn: parent
+          iconSize: Style.space(13)
+          color: root.barIconColor
+        }
+      }
+    }
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) {
         if (wireguard.active) wireguard.disconnectAll()
@@ -506,7 +546,10 @@ Panel {
         if (root.cursorActive && root.focusSection === "configs") root.requestDelete(root.selectedProfile())
       }
       onTextKey: function(t) {
-        if (t === "t" || t === "T") wireguard.toggle()
+        if (t === "t" || t === "T") {
+          if (root.cursorActive && root.focusSection === "configs") root.toggleConfig(root.selectedProfile())
+          else wireguard.toggle()
+        }
         else if (t === "r" || t === "R") wireguard.refresh()
         else if (t === "d" || t === "D") wireguard.disconnectAll()
         else if (t === "i" || t === "I") wireguard.pickConfigFile()
@@ -585,14 +628,11 @@ Panel {
               foreground: root.foreground
               fontFamily: root.fontFamily
               iconOpacity: wireguard.active ? 1.0 : 0.5
-              // The bar's vpn glyph, scaled up — the widget carries no
-              // AmneziaWG branding of its own.
+              // The bar's mark, scaled up to display size.
               iconComponent: Component {
-                Text {
-                  text: "󰖂"
+                AmneziaIcon {
+                  iconSize: Style.font.display
                   color: root.iconColor
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.display
                 }
               }
 
@@ -603,13 +643,13 @@ Panel {
                 Row {
                   spacing: Style.space(4)
 
-                  // The QR of the tunnel you are on, without going to its row
-                  // first. Only while something is up: with nothing connected
-                  // it would have no subject.
+                  // The QR of the tunnel the grid is describing, without going
+                  // to its row first. Only while something is up: with nothing
+                  // connected it would have no subject.
                   PanelActionButton {
                     iconText: "󰐲"
-                    tooltipText: "Show " + wireguard.primaryName + " as a QR code (q)"
-                    visible: wireguard.active
+                    tooltipText: "Show " + wireguard.inspectedName + " as a QR code (q)"
+                    visible: wireguard.inspectedActive
                     anchors.verticalCenter: parent.verticalCenter
                     // Full brightness at rest, like every other hero control:
                     // dimming until hover is for the row actions, which are
@@ -624,7 +664,7 @@ Panel {
                     fontSize: Style.font.subtitle * 1.5
                     enabled: !wireguard.busy
                     onHovered: function(on) { if (on) header.focusHero() }
-                    onClicked: wireguard.showQr(wireguard.primaryProfile)
+                    onClicked: wireguard.showQr(wireguard.inspectedProfile)
                   }
 
                   ToggleSwitch {
@@ -666,7 +706,7 @@ Panel {
           // tunnel is described: one endpoint and one ping cannot stand for
           // two, and the rows below keep their own traffic lines.
           Column {
-            visible: wireguard.active
+            visible: wireguard.inspectedActive
             // Short of the full width by the hero switch's cursor-ring pad:
             // ToggleSwitch reserves that ring outside its track, so the item
             // is flush with the edge while the switch you can see is not.
@@ -684,7 +724,7 @@ Panel {
               width: parent.width
               text: {
                 var notes = []
-                if (wireguard.activeNames.length > 1) notes.push("Showing " + wireguard.primaryName)
+                if (wireguard.activeNames.length > 1) notes.push("Showing " + wireguard.inspectedName)
                 if (wireguard.peerCount > 1) notes.push("first of " + wireguard.peerCount + " peers")
                 return notes.join(" · ")
               }
@@ -727,22 +767,22 @@ Panel {
               // its zero would claim an idle tunnel on no evidence.
               DetailPair {
                 label: "Receiving"
-                value: wireguard.trafficRate(wireguard.primaryDevice, "rxRate")
+                value: wireguard.trafficRate(wireguard.inspectedDevice, "rxRate")
               }
               DetailPair {
                 label: "Sending"
-                value: wireguard.trafficRate(wireguard.primaryDevice, "txRate")
+                value: wireguard.trafficRate(wireguard.inspectedDevice, "txRate")
               }
 
               // Session totals, not lifetime ones: awg-quick creates the
               // wg interface at activation, so its counters start at zero.
               DetailPair {
                 label: "Downloaded"
-                value: wireguard.trafficTotal(wireguard.primaryDevice, "rx")
+                value: wireguard.trafficTotal(wireguard.inspectedDevice, "rx")
               }
               DetailPair {
                 label: "Uploaded"
-                value: wireguard.trafficTotal(wireguard.primaryDevice, "tx")
+                value: wireguard.trafficTotal(wireguard.inspectedDevice, "tx")
               }
 
               DetailPair {
@@ -1154,9 +1194,14 @@ Panel {
     property var profile: null
     property int rowIndex: 0
     readonly property bool connected: profile ? profile.active === true : false
+    // The row the detail grid above is describing — highlighted so it is clear
+    // which tunnel the numbers belong to when several are up.
+    readonly property bool inspected: profile
+      && wireguard.inspectedActive
+      && wireguard.inspectedIfnameEffective === profile.ifname
 
     hasCursor: root.cursorActive && root.focusSection === "configs" && root.configIndex === rowIndex
-    current: connected
+    current: inspected
     foreground: root.foreground
 
     implicitHeight: rowContent.implicitHeight + Style.spacing.rowPaddingX
@@ -1201,21 +1246,45 @@ Panel {
 
         Text {
           Layout.fillWidth: true
-          // The grid above carries the primary tunnel's numbers in full, so
-          // this row states what it is instead of repeating them. Only a
-          // second active tunnel — which the grid does not describe, and
-          // which nothing in this widget can bring up — keeps a traffic
-          // line of its own.
+          // Connect and disconnect are the toggle on the right; a click on the
+          // row only points the grid above at this tunnel. When the grid is
+          // already describing this row its numbers are up there in full, so
+          // the caption gives a live traffic line for any other active tunnel
+          // and a plain word for the rest.
           text: {
-            if (!configRow.connected) return "Click to connect"
-            if (configRow.profile && configRow.profile.ifname === wireguard.primaryIfname) return "Connected — click to disconnect"
+            if (!configRow.connected) return "Disconnected"
+            if (configRow.inspected) return "Connected — shown above"
             var line = wireguard.trafficLine(configRow.profile ? configRow.profile.ifname : "")
-            return line !== "" ? line : "Connected — click to disconnect"
+            return line !== "" ? line : "Connected — click to view"
           }
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+      }
+
+      // One tunnel, up or down, without touching the others. Its own click
+      // target sits above the row's, so flipping the switch never also
+      // re-points the detail grid. Hidden until the row is hovered, like the
+      // three action buttons — the check glyph on the left already carries
+      // "connected" at rest, so a permanent switch on every row is noise.
+      ToggleSwitch {
+        id: rowSwitch
+        checked: configRow.connected
+        busy: wireguard.busy
+        interactive: true
+        cursorRing: false
+        foreground: root.foreground
+        visible: configRow.hasCursor
+        Layout.alignment: Qt.AlignVCenter
+        onToggled: root.toggleConfig(configRow.profile)
+
+        PanelToolTip {
+          visible: rowSwitch.containsMouse
+          text: configRow.connected ? "Disconnect " + (configRow.profile ? configRow.profile.name : "")
+                                    : "Connect " + (configRow.profile ? configRow.profile.name : "")
+          fontFamily: root.fontFamily
         }
       }
 
