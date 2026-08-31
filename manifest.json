@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "antesmd.amneziawg",
   "name": "Omazia",
-  "version": "2.6.0",
+  "version": "1.0.0",
   "author": "antesmd",
   "license": "MIT",
   "description": "Tunnel status, per-tunnel toggles for running several at once, import, rename, QR export, live traffic and drop notifications in the Omarchy bar. Manages AmneziaWG tunnels under /etc/amnezia/amneziawg via awg-quick and a small root helper invoked with pkexec — no NetworkManager, no sudo shell. Unofficial third-party widget; not affiliated with the AmneziaWG project.",
