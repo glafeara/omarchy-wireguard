@@ -57,6 +57,9 @@ Item {
   readonly property string toggleTarget: toggleProfile ? toggleProfile.name : ""
 
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 10, 2, 3600)
+  // Off: connecting a tunnel switches to it, taking the others down. On: it
+  // comes up beside them, and each row toggles only itself.
+  readonly property bool multiTunnel: boolSetting("multiTunnel", false)
 
   // Traffic sampling: byte counters from /sys for the active tunnels'
   // devices — readable without privilege. This is activity, not health:
@@ -76,15 +79,22 @@ Item {
     return out
   }
 
-  // The tunnel the detail grid describes — the first active profile in the
-  // sorted list, which is also the one the hero names first. WireGuard can
-  // run several at once; the rest keep their per-row traffic line, because
-  // one endpoint, one address and one ping cannot describe two tunnels.
+  // The active tunnel the panel's cursor last rested on. Set by the panel,
+  // cleared when it closes, so a reopened panel starts from the top again.
+  property string focusUuid: ""
+
+  // The tunnel the detail grid describes: the focused one while it is up,
+  // otherwise the first active profile in the sorted list — the one the
+  // hero names first. The rest keep their per-row traffic line, because one
+  // endpoint, one address and one ping cannot describe two tunnels.
   readonly property var primaryProfile: {
+    var first = null
     for (var i = 0; i < profiles.length; i++) {
-      if (profiles[i].active) return profiles[i]
+      if (!profiles[i].active) continue
+      if (profiles[i].uuid === focusUuid) return profiles[i]
+      if (first === null) first = profiles[i]
     }
-    return null
+    return first
   }
   readonly property string primaryUuid: primaryProfile ? primaryProfile.uuid : ""
   readonly property string primaryName: primaryProfile ? primaryProfile.name : ""
@@ -151,10 +161,14 @@ Item {
   }
 
   onTrafficMonitoringChanged: {
-    if (trafficMonitoring) fetchDetails()
-    // A window's worth of stale samples would otherwise be the first thing
-    // the panel shows on reopening.
-    else pingSamples = []
+    if (trafficMonitoring) {
+      fetchDetails()
+    } else {
+      // A window's worth of stale samples would otherwise be the first thing
+      // the panel shows on reopening.
+      pingSamples = []
+      focusUuid = ""
+    }
   }
 
   function setting(name, fallback) {
@@ -168,6 +182,16 @@ Item {
     if (n < min) n = min
     if (n > max) n = max
     return n
+  }
+
+  // `omarchy bar set` may store "false" as a string, which JS reads as true.
+  function boolSetting(name, fallback) {
+    var value = setting(name, fallback)
+    if (typeof value === "boolean") return value
+    var text = String(value).trim().toLowerCase()
+    if (text === "true" || text === "1" || text === "yes" || text === "on") return true
+    if (text === "false" || text === "0" || text === "no" || text === "off") return false
+    return fallback
   }
 
   function rejectAction(reason) {
@@ -473,12 +497,15 @@ Item {
       list.push(entry)
       byUuid[entry.uuid] = entry
     }
+    // The first profile that came up since the last poll, not the first one
+    // up: with several tunnels running, the first active one would win every
+    // poll and overwrite the one just connected.
     var firstUp = ""
     for (var j = sep + 1; j < activeEnd; j++) {
       var uuid = lines[j].trim()
       if (uuid === "" || byUuid[uuid] === undefined) continue
       byUuid[uuid].active = true
-      if (firstUp === "") firstUp = uuid
+      if (firstUp === "" && _prevActive[uuid] === undefined) firstUp = uuid
     }
     // Third section: uuid:configured-interface-name (no colons in either).
     if (sep2 !== -1) {
@@ -545,13 +572,15 @@ Item {
     saveProcess.running = true
   }
 
+  // `connect` is the exclusive, transactional switch; `up` adds the tunnel
+  // beside the running ones and refuses combinations that would fight.
   function connectTo(profile) {
     if (busy) return rejectAction("another WireGuard operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
     actionStatus = "Connecting " + profile.name + "…"
     _pendingConnect = String(profile.uuid)
-    runControl(["connect", profile.uuid])
+    runControl([multiTunnel ? "up" : "connect", profile.uuid])
     return true
   }
 

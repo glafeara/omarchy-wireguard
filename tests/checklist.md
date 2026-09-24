@@ -14,6 +14,29 @@ unreachable, which is why the failure paths live in `test-connect.sh`.
 - [ ] Switch to a tunnel while several are active (activated via `nmcli`) —
       only WireGuard profiles are touched, wifi/tailscale stay up.
 - [ ] Toggle from the bar and via `omarchy-shell glafeara.wireguard toggle`.
+- [ ] With `multiTunnel` off, an unconnected row reads "Click to switch"
+      while another tunnel is up, "Click to connect" while none is.
+
+## Several tunnels (`multiTunnel` on)
+
+- [ ] `omarchy bar set glafeara.wireguard multiTunnel true`, then connect a
+      split tunnel beside a full one — both stay up, rows read "Click to
+      connect".
+- [ ] Enter on a connected row takes down only that tunnel.
+- [ ] Connect a second full tunnel — refused, the error names the tunnel
+      already routing everything, nothing changes.
+- [ ] Move the cursor onto each connected row — the grid (and its
+      "Showing …" note) follows; onto a disconnected row — the grid stays.
+      Close and reopen — the grid starts from the first tunnel again.
+- [ ] Put the keyboard cursor on the second connected row, close with
+      `Esc`, wait past a refresh — `omarchy-shell glafeara.wireguard
+      details` still describes the first tunnel.
+- [ ] Reopen and press `j` once — the cursor reappears, and if it lands on
+      a connected row the grid follows at once, not on the next refresh.
+- [ ] `t` and right-click take every tunnel down; `t` again brings back the
+      one connected last, not the first in the list.
+- [ ] `multiTunnel false` (the string, via `omarchy bar set`) switches back
+      to exclusive switching.
 
 ## Traffic
 

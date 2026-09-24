@@ -90,9 +90,17 @@ Panel {
   // switching a tunnel nobody pointed at.
   property string cursorUuid: ""
 
+  // With several tunnels up, the grid describes the one the visible cursor
+  // last rested on. An inactive row leaves the grid where it was: a grid
+  // that blanks while the cursor crosses the list tells nobody anything.
+  // Only an open panel has a visible cursor — every status poll re-runs this
+  // through restoreCursor, and a closed panel must not steer the grid (or
+  // the IPC `details` it also answers) from a cursor nobody can see.
   function rememberCursor() {
     var profile = selectedProfile()
     cursorUuid = profile ? String(profile.uuid) : ""
+    if (opened && cursorActive && focusSection === "configs" && profile && profile.active)
+      wireguard.focusUuid = cursorUuid
   }
 
   function restoreCursor() {
@@ -303,18 +311,24 @@ Panel {
     pendingDelete = null
     pendingEdit = null
     cancelImport()
+    // Both ways: the cursor is hidden until the next key or hover, and it
+    // stays hidden while closed, so nothing it points at outlives the panel.
+    // The grid's focus itself is dropped by the service when sampling stops.
+    cursorActive = false
     if (opened) {
       if (wireguard.qrVisible) wireguard.closeQr()
       cancelRename()
       // The error surface is back on screen; whatever happens to the editor
       // now needs no rescue.
       editHandedOff = false
-      cursorActive = false
       if (panelFlick) panelFlick.contentY = 0
       wireguard.refresh()
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
     }
   }
+  // The first key only reveals the cursor where it already sat; the grid
+  // follows it then, not on the next status poll.
+  onCursorActiveChanged: if (cursorActive) rememberCursor()
   onConfigIndexChanged: {
     rememberCursor()
     scrollCursorIntoView()
@@ -1202,12 +1216,12 @@ Panel {
         Text {
           Layout.fillWidth: true
           // The grid above carries the primary tunnel's numbers in full, so
-          // this row states what it is instead of repeating them. Only a
-          // second active tunnel — which the grid does not describe, and
-          // which nothing in this widget can bring up — keeps a traffic
-          // line of its own.
+          // this row states what it is instead of repeating them. Every
+          // other active tunnel — the grid describes one at a time — keeps
+          // a traffic line of its own.
           text: {
-            if (!configRow.connected) return "Click to connect"
+            if (!configRow.connected)
+              return wireguard.multiTunnel || !wireguard.active ? "Click to connect" : "Click to switch"
             if (configRow.profile && configRow.profile.uuid === wireguard.primaryUuid) return "Connected — click to disconnect"
             var line = wireguard.trafficLine(configRow.profile ? configRow.profile.ifname : "")
             return line !== "" ? line : "Connected — click to disconnect"
