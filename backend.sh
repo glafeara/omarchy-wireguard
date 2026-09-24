@@ -29,6 +29,14 @@
 #                               restored. Exit 21: the switch failed and the
 #                               rollback was incomplete — the resulting state
 #                               is unknown.
+#   up <uuid>                   additive connect (the multiTunnel setting):
+#                               bring the profile up beside the active ones,
+#                               taking none down. Exit 1 with the reason on
+#                               stderr when it would collide with an active
+#                               tunnel (interface, same client and server,
+#                               both routing a whole family) or one of them
+#                               cannot be read; nothing changed, so there is
+#                               no rollback.
 #   down <uuid>                 deactivate one profile
 #   down-all                    deactivate every active wireguard profile
 #   delete <uuid>               delete a profile (deactivates it first)
@@ -388,6 +396,145 @@ cmd_connect() {
       }
     done
   fi
+}
+
+# Which address families a profile routes in full — "4" and/or "6", one per
+# line. Every peer counts, not just the first: a site-to-site profile whose
+# second peer carries the default route still claims it. Two /1 halves are
+# how wg-quick-style configs dodge the default route, so they count too.
+# This is a heuristic, not route arithmetic: an "exclude private IPs" list
+# of dozens of prefixes covers nearly everything without matching either
+# form. With peer-routes off NetworkManager installs no allowed-ips routes
+# at all, and a family whose method is disabled gets no routes either, so
+# neither claims anything whatever the peers say. This and the helpers below
+# read an `nmcli -t connection show` dump the caller already has, so cmd_up
+# asks NetworkManager for each profile once.
+full_families() { # <profile-dump>
+  local line peers="" routes="yes" m4="" m6="" chunk token ip v4=0 v6=0
+  while IFS= read -r line; do
+    case "${line%%:*}" in
+      wireguard.peers) peers="$(unescape "${line#*:}")" ;;
+      wireguard.peer-routes) routes="$(unescape "${line#*:}")" ;;
+      ipv4.method) m4="${line#*:}" ;;
+      ipv6.method) m6="${line#*:}" ;;
+    esac
+  done <<< "$1"
+  [ "$routes" = no ] && return 0
+  # One bit per /1 half; a /0 sets both.
+  while IFS= read -r chunk; do
+    for token in $chunk; do
+      [ "${token%%=*}" = allowed-ips ] || continue
+      token="${token#*=}"
+      for ip in ${token//;/ }; do
+        case "$ip" in
+          0.0.0.0/0) v4=3 ;;
+          0.0.0.0/1) v4=$((v4 | 1)) ;;
+          128.0.0.0/1) v4=$((v4 | 2)) ;;
+          ::/0) v6=3 ;;
+          ::/1) v6=$((v6 | 1)) ;;
+          8000::/1) v6=$((v6 | 2)) ;;
+        esac
+      done
+    done
+  done <<< "${peers//, /$'\n'}"
+  [ "$v4" = 3 ] && [ "$m4" != disabled ] && echo 4
+  [ "$v6" = 3 ] && [ "$m6" != disabled ] && [ "$m6" != ignore ] && echo 6
+  return 0
+}
+
+# A profile's own tunnel addresses, prefix stripped, one per line.
+tunnel_addrs() { # <profile-dump>
+  local line value item
+  while IFS= read -r line; do
+    case "${line%%:*}" in
+      ipv4.addresses|ipv6.addresses)
+        value="$(unescape "${line#*:}")"
+        for item in ${value//,/ }; do printf '%s\n' "${item%%/*}"; done ;;
+    esac
+  done <<< "$1"
+}
+
+# The public keys of a profile's peers — the servers it talks to — one per
+# line. Each peer entry leads with its key.
+peer_keys() { # <profile-dump>
+  local line chunk
+  while IFS= read -r line; do
+    [ "${line%%:*}" = wireguard.peers ] || continue
+    while IFS= read -r chunk; do
+      chunk="$(trim "$chunk")"
+      [ -n "$chunk" ] && printf '%s\n' "${chunk%% *}"
+    done <<< "$(unescape "${line#*:}" | sed 's/, /\n/g')"
+  done <<< "$1"
+}
+
+# Whether two newline-separated lists share an entry; prints the first.
+shared() { # <list> <list>
+  local item
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    printf '%s\n' "$2" | grep -qxF -- "$item" && { printf '%s' "$item"; return 0; }
+  done <<< "$1"
+  return 1
+}
+
+# Additive connect, for the multiTunnel setting: the target comes up beside
+# whatever is already running, and nothing goes down. Nothing changes before
+# the checks pass, so a refusal or a failed activation needs no rollback.
+# Three things are refused rather than attempted, because each would take
+# another tunnel down behind the user's back or leave routing a coin toss:
+# a shared interface — NetworkManager would move the device to the new
+# profile, deactivating the old one — a second profile of the same client
+# (same address, same server), and two tunnels that both route a whole
+# address family. An active tunnel that cannot be read is refused too: a
+# check that silently passes is no check.
+cmd_up() {
+  local target="$1" live active u target_if u_if u_dev u_name u_raw hit out
+  local target_raw target_fams target_addrs target_keys
+  # Live devices, not just configured names: a profile edited while up
+  # keeps running on the interface it was activated with.
+  live="$(nmcli -t -f UUID,TYPE,DEVICE connection show --active)" ||
+    die "Could not list active connections"
+  active="$(printf '%s\n' "$live" | awk -F: '$2=="wireguard"{print $1}')"
+  printf '%s\n' "$active" | grep -qxF "$target" && exit 0
+
+  target_if="$(nmcli --escape no -g connection.interface-name connection show "$target")" ||
+    die "No such profile: $target"
+  # An unset interface name is picked by NetworkManager at activation, so
+  # whether it collides is unknowable here — the switch path has the same
+  # rule and makes the same call.
+  if [ -z "$target_if" ] && [ -n "$active" ]; then
+    die "This profile has no interface name, so it cannot run beside other tunnels — disconnect them first, or turn off multiTunnel to switch"
+  fi
+  target_raw="$(nmcli -t connection show "$target")" || die "Could not read the profile's routes and addresses"
+  target_fams="$(full_families "$target_raw")"
+  target_addrs="$(tunnel_addrs "$target_raw")"
+  target_keys="$(peer_keys "$target_raw")"
+
+  for u in $active; do
+    u_name="$(nmcli --escape no -g connection.id connection show "$u" 2>/dev/null)" || u_name=""
+    [ -n "$u_name" ] || u_name="$u"
+    u_if="$(nmcli --escape no -g connection.interface-name connection show "$u")" || u_if=""
+    u_dev="$(printf '%s\n' "$live" | awk -F: -v u="$u" '$1==u{print $3; exit}')"
+    if [ "$u_if" = "$target_if" ] || [ "$u_dev" = "$target_if" ]; then
+      die "$u_name already uses interface $target_if — disconnect it first, or turn off multiTunnel to switch"
+    fi
+    u_raw="$(nmcli -t connection show "$u")" ||
+      die "Could not read $u_name to check it against this tunnel — disconnect it first, or try again"
+    # Two profiles cut from one config — everything, and LAN only — share
+    # a key, an address and a server: to that server they are one peer, so
+    # the second would steal the first one's session. A shared address alone
+    # is not enough — some providers hand every client the same one.
+    if hit="$(shared "$(tunnel_addrs "$u_raw")" "$target_addrs")" &&
+       shared "$(peer_keys "$u_raw")" "$target_keys" >/dev/null; then
+      die "$u_name is the same client on the same server (tunnel address $hit) — disconnect it first, or turn off multiTunnel to switch"
+    fi
+    if hit="$(shared "$(full_families "$u_raw")" "$target_fams")"; then
+      die "$u_name already routes all IPv$hit traffic — disconnect it first, or turn off multiTunnel to switch"
+    fi
+  done
+
+  out="$(nmcli connection up "$target" 2>&1)" || die "Could not activate the tunnel: $out"
+  clear_intent "$target"
 }
 
 cmd_down() {
@@ -955,6 +1102,7 @@ case "${1:-}" in
   # panel polls it while a mutating operation may be running.
   details) cmd_details "$2" "${3:-}" ;;
   connect) lock; cmd_connect "$2" ;;
+  up) lock; cmd_up "$2" ;;
   down) lock; cmd_down "$2" ;;
   down-all) lock; cmd_down_all ;;
   delete) lock; cmd_delete "$2" ;;
@@ -970,5 +1118,5 @@ case "${1:-}" in
   qr-png) cmd_qr_png "$2" ;;
   cleanup-runtime|cleanup-qr) cmd_cleanup_runtime ;;
   edit) cmd_edit "$2" "$3" ;;
-  *) die "Usage: backend.sh status|details|connect|down|down-all|delete|rename|import|export|export-file|qr-png|cleanup-runtime|edit ..." ;;
+  *) die "Usage: backend.sh status|details|connect|up|down|down-all|delete|rename|import|export|export-file|qr-png|cleanup-runtime|edit ..." ;;
 esac

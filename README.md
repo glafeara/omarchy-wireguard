@@ -11,12 +11,14 @@ endorsed by, or connected to the WireGuard project.
 
 Tunnels are NetworkManager connection profiles. The widget lists every
 WireGuard profile NetworkManager knows about, and importing a `.conf` file
-creates one. Switching is exclusive and transactional: the tunnel you pick
-comes up and every other WireGuard tunnel goes down — but when interface
-names allow it the new tunnel comes up *first*, and if anything fails the
-previously active tunnels are restored, so a broken profile never leaves
-you without the VPN you had. Non-WireGuard connections (wifi, ethernet,
-tailscale) are never touched.
+creates one. By default switching is exclusive and transactional: the tunnel
+you pick comes up and every other WireGuard tunnel goes down — but when
+interface names allow it the new tunnel comes up *first*, and if anything
+fails the previously active tunnels are restored, so a broken profile never
+leaves you without the VPN you had. Turn on `multiTunnel` and connecting
+adds a tunnel beside the ones already up instead
+([Several tunnels at once](#several-tunnels-at-once)). Non-WireGuard
+connections (wifi, ethernet, tailscale) are never touched.
 
 **No sudo, no root shell.** Everything goes through NetworkManager over
 D-Bus, authorized by polkit — on a stock Omarchy desktop an active local
@@ -63,7 +65,7 @@ header, the `t` key, or the IPC `toggle` command.
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows | move the cursor |
-| `Enter`, `Space` | connect or disconnect the selected connection |
+| `Enter`, `Space` | connect (switch, or add with `multiTunnel`) or disconnect the selected connection |
 | `t` | toggle the last used tunnel |
 | `i` | import a `.conf` file |
 | `v` | import a config from the clipboard |
@@ -106,11 +108,13 @@ tunnels have exactly one; a profile with several says so under the grid
 (`first of 3 peers`), because one endpoint line cannot describe a
 site-to-site setup and should not pretend to.
 
-Nothing in this widget can bring up two tunnels at once — switching is
-exclusive — but `nmcli`, another applet or a profile with autoconnect can.
-Then the grid describes the first and says which one, since one endpoint
-and one ping cannot stand for two; the tunnel it leaves out keeps a compact
-traffic line of its own in the list below
+With several tunnels up — through `multiTunnel`, or through `nmcli`,
+another applet or a profile with autoconnect — the grid describes one of
+them and says which, since one endpoint and one ping cannot stand for two.
+It follows the cursor: move onto a connected row and the grid switches to
+that tunnel; a disconnected row leaves it where it was. With no cursor (a
+freshly opened panel) it describes the first. Every tunnel it leaves out
+keeps a compact traffic line of its own in the list below
 (`↓ 3.0K/s ↑ 14.8K/s · ↓ 2.6M ↑ 1.1M`). The one in the grid does not — the
 same four numbers twice on one screen is noise.
 
@@ -138,6 +142,76 @@ got: switched, "the previous tunnels were restored", or — if the rollback
 itself failed — a plain statement that the state is unknown. A successful
 activation confirms NetworkManager's state, not the peer's reachability:
 WireGuard has no connected/disconnected handshake state to report.
+
+### Several tunnels at once
+
+Off by default. Turn it on with
+
+```bash
+omarchy bar set glafeara.wireguard multiTunnel true
+```
+
+and each row toggles only itself: connecting brings the tunnel up beside
+whatever is running and takes nothing down, and disconnecting takes down
+just that one. `t`, the header switch and right-click still act on
+everything — "VPN off" means all of it. Unconnected rows read "Click to
+connect" instead of "Click to switch". The setting takes effect on the next
+click; nothing is reconnected when it changes.
+
+Some combinations are refused before anything changes, with a message
+naming the tunnel in the way:
+
+- **Two tunnels that both route a whole address family** — `0.0.0.0/0`, or
+  the `0.0.0.0/1` + `128.0.0.0/1` pair (`::/0`, `::/1` + `8000::/1` for
+  IPv6), on any peer. Both would claim the default route, and which one
+  wins would come down to route metrics. A full tunnel beside split ones
+  is fine, and so is a full IPv4 tunnel beside a full IPv6 one. A profile
+  with `wireguard.peer-routes` off, or with that family's method disabled,
+  installs no such routes and claims nothing. This is a heuristic, not
+  route arithmetic: an "exclude private IPs" list of dozens of prefixes
+  covers nearly everything without matching either form, and is let
+  through.
+- **The same client on the same server** — a shared tunnel address *and* a
+  shared peer. Two profiles cut from one config (see below) are one peer to
+  the server, and the second would steal the first one's session. A shared
+  address alone is allowed: some providers hand every client the same one.
+- **A shared or unset interface name**, checked against both the configured
+  names and the devices actually in use. NetworkManager would hand the
+  device to the new profile and silently deactivate the old one — a switch
+  without the rollback.
+- **An active tunnel that cannot be read.** A check that cannot see the
+  other side does not pass by default.
+
+For any of them, disconnect the other tunnel first, or turn the setting off
+and switch. An edit that brings a running tunnel back up is not checked
+again: you changed that tunnel on purpose.
+
+#### A full and a LAN-only profile for one server
+
+A common reason to want this setting is a home or office server you
+sometimes want for everything and sometimes only for its LAN. That is two
+profiles from one config — same key, same address — which the rules above
+keep from running together, so you switch between them. Say the tunnel is
+`home`, its network `10.99.0.0/24` and the LAN behind the server
+`192.168.50.0/24`:
+
+```bash
+# Export the full profile under the new name (0600, private key inside).
+omarchy-shell glafeara.wireguard exportConfig home ~/home-lan.conf
+# Route only the tunnel network and the LAN.
+sed -i 's|^AllowedIPs = .*|AllowedIPs = 10.99.0.0/24, 192.168.50.0/24|' ~/home-lan.conf
+# Import it; the profile and its interface are named after the file.
+omarchy-shell glafeara.wireguard importConfig ~/home-lan.conf
+rm ~/home-lan.conf
+# Send only the LAN's own names to its DNS server, not every lookup.
+nmcli connection modify home-lan ipv4.dns-search '~home.lan'
+```
+
+The last line matters when the config sets `DNS`: without a routing domain
+the LAN's resolver answers every query, and a LAN-only tunnel is no longer
+LAN-only for DNS. Use whatever domain the LAN's hosts live under. If the
+LAN's subnet matches the network you are on (`192.168.1.0/24` is common),
+the two clash while the tunnel is up.
 
 Replacing a profile during import is transactional too. If NetworkManager
 refuses deletion of the old active profile and also refuses its rollback,
@@ -196,10 +270,12 @@ they were.
 | --- | --- | --- |
 | `refreshIntervalSec` | `10` | 2–3600 |
 | `pingHost` | `1.1.1.1` | any host, or empty to disable the probe |
+| `multiTunnel` | `false` | `true` to run several tunnels at once |
 
 ```bash
 omarchy bar set glafeara.wireguard refreshIntervalSec 30
 omarchy bar set glafeara.wireguard pingHost ""     # no latency probe
+omarchy bar set glafeara.wireguard multiTunnel true
 ```
 
 ## IPC

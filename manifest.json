@@ -5,7 +5,7 @@
   "version": "2.5.1",
   "author": "glafeara",
   "license": "MIT",
-  "description": "Tunnel status, transactional switching, import, rename, QR export, live traffic and drop notifications in the Omarchy bar. Unofficial third-party widget for WireGuard tunnels; not affiliated with the WireGuard project.",
+  "description": "Tunnel status, transactional switching or several tunnels at once, import, rename, QR export, live traffic and drop notifications in the Omarchy bar. Unofficial third-party widget for WireGuard tunnels; not affiliated with the WireGuard project.",
   "kinds": [
     "bar-widget"
   ],
@@ -20,7 +20,8 @@
     "defaultSection": "right",
     "defaults": {
       "refreshIntervalSec": 10,
-      "pingHost": "1.1.1.1"
+      "pingHost": "1.1.1.1",
+      "multiTunnel": false
     },
     "schema": [
       {
@@ -37,6 +38,13 @@
         "type": "string",
         "label": "Ping host (empty disables the latency probe)",
         "defaultValue": "1.1.1.1"
+      },
+      {
+        "key": "multiTunnel",
+        "type": "boolean",
+        "label": "Allow several tunnels at once",
+        "description": "Connecting a tunnel adds it beside the others instead of switching to it.",
+        "defaultValue": false
       }
     ]
   }

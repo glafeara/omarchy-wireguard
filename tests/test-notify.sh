@@ -90,6 +90,28 @@ bash "$backend" mark-active U1 "$ts" >/dev/null 2>&1
 expect "same-second mark-active keeps the marker" 'grep -q "^U1 " "$intent"'
 check "same-second drop stays quiet" U1 1 4
 
+# up (multiTunnel) takes nothing down, so it marks nothing — and like any
+# activation it clears the target's old marker, so a later external drop of
+# the tunnel it just brought up is not mistaken for ours.
+rm -f "$intent" "$notified"
+echo OLD > "$FAKE_DIR/active"
+echo wg-t > "$FAKE_DIR/ifname.TARGET"; echo wg-o > "$FAKE_DIR/ifname.OLD"
+printf 'wireguard.peers:AAAA= allowed-ips=10.0.0.0/8\n' > "$FAKE_DIR/props.TARGET"
+printf 'wireguard.peers:BBBB= allowed-ips=198.51.100.0/24\n' > "$FAKE_DIR/props.OLD"
+printf 'TARGET %s\n' "$(date +%s)" > "$intent"
+bash "$backend" up TARGET >/dev/null 2>&1
+expect "up clears the target's marker" '! grep -q "^TARGET " "$intent"'
+expect "up marks no other tunnel" '! grep -q "^OLD " "$intent"'
+check "target drop after up notifies" TARGET 0 5
+
+# A refused up changes nothing, the target's marker included.
+rm -f "$intent" "$notified"
+echo OLD > "$FAKE_DIR/active"
+echo wg-t > "$FAKE_DIR/ifname.OLD"
+printf 'TARGET %s\n' "$(date +%s)" > "$intent"
+bash "$backend" up TARGET >/dev/null 2>&1
+expect "refused up keeps the target's marker" 'grep -q "^TARGET " "$intent"'
+
 echo "----"
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

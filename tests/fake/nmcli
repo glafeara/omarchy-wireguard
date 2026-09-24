@@ -2,6 +2,7 @@
 # Fake nmcli for backend tests. State lives in $FAKE_DIR:
 #   active          one active uuid per line
 #   ifname.<uuid>   configured interface-name
+#   device.<uuid>   live device of an active profile, if not its ifname
 #   fail-up.<uuid>  if present, `connection up <uuid>` fails
 #   fail-down.<uuid> if present, `connection down <uuid>` fails
 #   props.<uuid>    terse `connection show <uuid>` output (details)
@@ -17,6 +18,15 @@ case "$*" in
   "-t -f UUID,TYPE connection show --active")
     [ -e "$FAKE_DIR/fail-active" ] && { echo "Error: could not list active" >&2; exit 17; }
     while IFS= read -r u; do printf '%s:wireguard\n' "$u"; done < "$FAKE_DIR/active"
+    exit 0 ;;
+  # The live device is device.<uuid> when set (a profile edited while up),
+  # otherwise the configured interface name.
+  "-t -f UUID,TYPE,DEVICE connection show --active")
+    [ -e "$FAKE_DIR/fail-active" ] && { echo "Error: could not list active" >&2; exit 17; }
+    while IFS= read -r u; do
+      d="$(cat "$FAKE_DIR/device.$u" 2>/dev/null || cat "$FAKE_DIR/ifname.$u" 2>/dev/null)"
+      printf '%s:wireguard:%s\n' "$u" "$d"
+    done < "$FAKE_DIR/active"
     exit 0 ;;
   "-t -f UUID,TYPE,DEVICE,NAME connection show")
     cat "$FAKE_DIR/list" 2>/dev/null
