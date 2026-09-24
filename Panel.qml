@@ -489,7 +489,9 @@ Panel {
     // gives back to align with the hero switch already deducted. A hostname
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(480))
+    // No cap of its own, like the system network panel: the list grows with
+    // the profiles and scrolls only once the screen runs out.
+    contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
