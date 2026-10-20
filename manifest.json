@@ -20,7 +20,8 @@
     "defaultSection": "right",
     "defaults": {
       "refreshIntervalSec": 10,
-      "pingHost": "1.1.1.1"
+      "pingHost": "1.1.1.1",
+      "parallelTunnels": false
     },
     "schema": [
       {
@@ -37,6 +38,12 @@
         "type": "string",
         "label": "Ping host (empty disables the latency probe)",
         "defaultValue": "1.1.1.1"
+      },
+      {
+        "key": "parallelTunnels",
+        "type": "boolean",
+        "label": "Keep tunnels with non-overlapping routes connected",
+        "defaultValue": false
       }
     ]
   }

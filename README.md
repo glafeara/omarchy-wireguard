@@ -30,6 +30,7 @@ containing hook directives are rejected with a clear message.
 
 - **NetworkManager** — running (Omarchy default).
 - **`wireguard-tools`** — only `wg` is used, to validate keys before import.
+- **`python3`** — only with `parallelTunnels` on, to compare AllowedIPs.
 - **`zenity`** — optional, for the file picker and the config editor.
   `kdialog` or `yad` also work for the file picker.
 - **`wl-clipboard`** — optional, for importing a config from the clipboard
@@ -196,10 +197,12 @@ they were.
 | --- | --- | --- |
 | `refreshIntervalSec` | `10` | 2–3600 |
 | `pingHost` | `1.1.1.1` | any host, or empty to disable the probe |
+| `parallelTunnels` | `false` | `true` keeps tunnels with non-overlapping AllowedIPs connected side by side |
 
 ```bash
 omarchy bar set glafeara.wireguard refreshIntervalSec 30
 omarchy bar set glafeara.wireguard pingHost ""     # no latency probe
+omarchy bar set glafeara.wireguard parallelTunnels true --json
 ```
 
 ## IPC

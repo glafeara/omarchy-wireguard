@@ -29,6 +29,9 @@
 #                               restored. Exit 21: the switch failed and the
 #                               rollback was incomplete — the resulting state
 #                               is unknown.
+#   connect --parallel <uuid>   same, but only tunnels whose AllowedIPs
+#                               overlap the target's are switched off;
+#                               disjoint tunnels stay up alongside it.
 #   down <uuid>                 deactivate one profile
 #   down-all                    deactivate every active wireguard profile
 #   delete <uuid>               delete a profile (deactivates it first)
@@ -299,6 +302,37 @@ cmd_details() {
   printf 'peers=%s\n' "$count"
 }
 
+# Every AllowedIPs prefix of every peer of a profile, one per line.
+allowed_ips() { # <uuid>
+  local peers chunk token a
+  peers="$(nmcli --escape no -g wireguard.peers connection show "$1")" || return 1
+  while IFS= read -r chunk; do
+    for token in $chunk; do
+      case "${token%%=*}" in
+        allowed-ips) a="${token#*=}"; printf '%s\n' ${a//;/ } ;;
+      esac
+    done
+  done <<< "${peers//, /$'\n'}"
+}
+
+# Exit 0 when two profiles route any common address — or when that cannot
+# be determined, so an unreadable profile is always treated as conflicting.
+routes_overlap() { # <uuid> <uuid>
+  local a b
+  a="$(allowed_ips "$1")" && b="$(allowed_ips "$2")" || return 0
+  [ -n "$a" ] && [ -n "$b" ] || return 0
+  # Exit 3 = provably disjoint. Anything else (overlap, a parse error, no
+  # python3) counts as overlapping.
+  python3 - "$a" "$b" <<'PY'
+import ipaddress, sys
+def nets(text):
+    return [ipaddress.ip_network(x, strict=False) for x in text.split()]
+a, b = nets(sys.argv[1]), nets(sys.argv[2])
+sys.exit(0 if any(x.version == y.version and x.overlaps(y) for x in a for y in b) else 3)
+PY
+  [ "$?" != 3 ]
+}
+
 # Transactional exclusive switch. The old tunnel must not be lost to a
 # target that fails to come up: when interface names allow it the new tunnel
 # comes up before the old ones go down (make-before-break — the kernel is
@@ -307,12 +341,18 @@ cmd_details() {
 # are touched — wifi, tailscale and everything else NetworkManager runs is
 # not ours to bring down.
 cmd_connect() {
-  local target="$1" snapshot u out
+  local parallel=0
+  [ "${1:-}" = --parallel ] && { parallel=1; shift; }
+  local target="${1:-}" snapshot u out
   snapshot="$(active_wg_uuids)" || die "Could not list active connections"
 
+  # In parallel mode a tunnel whose routes are disjoint from the target's is
+  # simply left alone: it never enters `others`, so neither the switch nor a
+  # rollback touches it.
   local target_was_active=0 others=""
   for u in $snapshot; do
     if [ "$u" = "$target" ]; then target_was_active=1
+    elif [ "$parallel" = 1 ] && ! routes_overlap "$target" "$u"; then continue
     else others="$others$u "; fi
   done
   [ "$target_was_active" = 1 ] && [ -z "$others" ] && exit 0
@@ -954,7 +994,7 @@ case "${1:-}" in
   # Read-only, so no lock: it never touches NetworkManager state, and the
   # panel polls it while a mutating operation may be running.
   details) cmd_details "$2" "${3:-}" ;;
-  connect) lock; cmd_connect "$2" ;;
+  connect) lock; shift; cmd_connect "$@" ;;
   down) lock; cmd_down "$2" ;;
   down-all) lock; cmd_down_all ;;
   delete) lock; cmd_delete "$2" ;;

@@ -116,6 +116,10 @@ Item {
   // sockets are open to all users on Omarchy. Set pingHost to "" to switch
   // the probe off entirely.
   readonly property string pingHost: String(setting("pingHost", "1.1.1.1")).trim()
+  // Off: connecting a tunnel switches every other one off (exclusive).
+  // On: only tunnels whose AllowedIPs overlap the new one are switched off,
+  // so tunnels into different networks can run side by side.
+  readonly property bool parallelTunnels: setting("parallelTunnels", false) === true
   // Rate, not health, again: a lost packet is a lost packet, not a warning
   // about the tunnel. Samples are ms, or -1 for a timeout.
   property var pingSamples: []
@@ -551,7 +555,7 @@ Item {
     actionRejection = ""
     actionStatus = "Connecting " + profile.name + "…"
     _pendingConnect = String(profile.uuid)
-    runControl(["connect", profile.uuid])
+    runControl(parallelTunnels ? ["connect", "--parallel", profile.uuid] : ["connect", profile.uuid])
     return true
   }
 

@@ -2,6 +2,7 @@
 # Fake nmcli for backend tests. State lives in $FAKE_DIR:
 #   active          one active uuid per line
 #   ifname.<uuid>   configured interface-name
+#   peers.<uuid>    wireguard.peers value (--parallel overlap check)
 #   fail-up.<uuid>  if present, `connection up <uuid>` fails
 #   fail-down.<uuid> if present, `connection down <uuid>` fails
 #   props.<uuid>    terse `connection show <uuid>` output (details)
@@ -70,6 +71,11 @@ if [ "$1" = "--escape" ]; then # --escape no -g property connection show <uuid>
     elif [ -f "$FAKE_DIR/props.$u" ]; then printf '%s\n' "$u"
     else exit 10
     fi
+    exit 0
+  fi
+  if [ "$prop" = "wireguard.peers" ]; then
+    [ -f "$FAKE_DIR/peers.$u" ] || exit 10
+    cat "$FAKE_DIR/peers.$u"
     exit 0
   fi
   [ -f "$FAKE_DIR/ifname.$u" ] || exit 10

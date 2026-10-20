@@ -16,7 +16,7 @@ run_case() { # name expected-exit setup-fn [check-expr]
   export XDG_RUNTIME_DIR="$FAKE_DIR"
   : > "$FAKE_DIR/active"; : > "$FAKE_DIR/log"
   "$setup"
-  bash "$backend" connect TARGET >/dev/null 2>"$FAKE_DIR/stderr"
+  bash "$backend" connect ${CONNECT_FLAGS:-} TARGET >/dev/null 2>"$FAKE_DIR/stderr"
   local got=$?
   local ok=1
   [ "$got" = "$want" ] || { echo "  exit: want $want got $got"; ok=0; }
@@ -74,6 +74,18 @@ run_case "old refuses to go down: target rolled back down" 20 s_downfail c_downf
 
 s_noop() { echo TARGET > "$FAKE_DIR/active"; }
 run_case "already exactly the target: no-op" 0 s_noop 'active_is TARGET'
+
+# --parallel: only tunnels with overlapping AllowedIPs are switched off.
+peer() { echo "KEY= endpoint=1.2.3.4:51820 allowed-ips=$2" > "$FAKE_DIR/peers.$1"; }
+s_disjoint() { s_switch; peer TARGET 10.1.0.0/16; peer OLD 10.2.0.0/16; }
+s_overlap() { s_switch; peer TARGET 10.1.0.0/16; peer OLD 10.1.5.0/24; }
+s_nopeers() { s_switch; peer TARGET 10.1.0.0/16; }
+CONNECT_FLAGS=--parallel
+run_case "parallel: disjoint routes stay up" 0 s_disjoint 'active_is TARGET OLD'
+run_case "parallel: overlapping routes switch" 0 s_overlap 'active_is TARGET'
+run_case "parallel: unreadable routes switch" 0 s_nopeers 'active_is TARGET'
+CONNECT_FLAGS=
+run_case "default: disjoint routes still switch" 0 s_disjoint 'active_is TARGET'
 
 echo "----"
 echo "$pass passed, $fail failed"
